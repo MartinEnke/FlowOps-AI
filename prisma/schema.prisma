@@ -1,0 +1,48 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Customer {
+  id        String   @id
+  email     String
+  plan      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tickets       Ticket[]
+  interactions  Interaction[]
+}
+
+model Ticket {
+  id         String   @id
+  customerId String
+  subject    String
+  summary    String
+  priority   String
+  status     String   @default("open")
+  mode       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id])
+}
+
+model Interaction {
+  id          String   @id @default(cuid())
+  customerId  String
+  channel     String   // "chat" for now, later "email"
+  requestText String
+  replyText   String
+  mode        String   // "shadow" | "live"
+  confidence  Float
+  escalated   Boolean
+  verified    Boolean
+  actionsJson String
+  createdAt   DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id])
+}

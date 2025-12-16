@@ -24,6 +24,8 @@
 
     /* Safety for tooling / agents */
     "isolatedModules": true,
-    "moduleDetection": "force"
+    "moduleDetection": "force",
+
+    "include": ["src/**/*.ts"]
   }
 }
