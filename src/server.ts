@@ -7,6 +7,7 @@ import { runFlowOpsAgent } from "./agent/flowAgent";
 import { ChatRequest } from "./agent/types";
 import { prisma } from "./db/prisma";
 
+
 dotenv.config();
 
 const server = Fastify({ logger: true });
@@ -49,6 +50,32 @@ server.get(
   }
 );
 
+server.get("/debug/handoffs", async (req, reply) => {
+  const rows = await prisma.handoff.findMany({
+    where: { status: "pending" },
+    orderBy: { createdAt: "desc" },
+    take: 50
+  });
+
+  return reply.send(
+    rows.map((h) => ({
+      id: h.id,
+      customerId: h.customerId,
+      ticketId: h.ticketId,
+      reason: h.reason,
+      priority: h.priority,
+      mode: h.mode,
+      confidence: h.confidence,
+      status: h.status,
+      issues: h.issuesJson ? JSON.parse(h.issuesJson) : [],
+      actions: h.actionsJson ? JSON.parse(h.actionsJson) : [],
+      createdAt: h.createdAt
+    }))
+  );
+});
+
+
+
 // Debug: DB interactions
 server.get(
   "/debug/interactions/:customerId",
@@ -60,6 +87,9 @@ server.get(
     });
   }
 );
+
+
+
 
 // Main: chat channel
 server.post(

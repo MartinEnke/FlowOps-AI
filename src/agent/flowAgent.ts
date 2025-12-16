@@ -1,7 +1,10 @@
+// src/agent/flowAgent.ts
+
 import { getAccountStatus } from "../tools/accountTool";
 import { getBillingSummary } from "../tools/billingTool";
 import { upsertTicket } from "../tools/ticketTool";
 import { sendEmail } from "../tools/emailTool";
+import { createHandoff } from "../tools/handoffTool";
 import { decideRefund, shouldEscalate, Plan } from "./policy";
 import { ChatRequest, ChatResponse, Mode } from "./types";
 import { verifyReply, type VerificationInput } from "./verifier";
@@ -134,7 +137,6 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
       `I found your account details but couldn't create a ticket (${ticketRes.error}). ` +
       `I’m escalating this to a human agent.`;
 
-    // We don’t have verified/tool-based details to log safely here, so no DB write.
     return {
       reply: finalReply,
       mode,
@@ -183,19 +185,19 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
 
   // 5) Verify the reply draft against tool outputs
   const verificationInput: VerificationInput = {
-    replyDraft,
-    account: {
-      plan,
-      apiKeyStatus: account.apiKeyStatus,
-      email: account.email
-    },
-    billing: {
-      lastInvoiceId: billing.lastInvoiceId,
-      invoiceStatus: billing.invoiceStatus,
-      refundableAmount: billing.refundableAmount
-    },
-    claimedRefund: refundClaim
-  };
+  replyDraft,
+  account: {
+    plan,
+    apiKeyStatus: account.apiKeyStatus,
+    email: account.email
+  },
+  billing: {
+    lastInvoiceId: billing.lastInvoiceId,
+    invoiceStatus: billing.invoiceStatus,
+    refundableAmount: billing.refundableAmount
+  },
+  ...(refundClaim ? { claimedRefund: refundClaim } : {})
+};
 
   const verification = verifyReply(verificationInput);
   const verificationPassed = verification.passed;
@@ -214,7 +216,33 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
     verificationPassed
   });
 
-  if (escalationDecision.escalate) actions.push("escalate_to_human");
+  if (escalationDecision.escalate) {
+    actions.push("escalate_to_human");
+
+    const handoffReason =
+      !verificationPassed
+        ? "verification_failed"
+        : confidence < 0.7
+          ? "low_confidence"
+          : "policy_requires_human";
+
+    const handoffPriority: "low" | "med" | "high" =
+      plan === "enterprise" ? "high" : "high";
+
+    const handoffRes = await createHandoff({
+  customerId: input.customerId,
+  ticketId: ticketRes.data.ticketId,
+  reason: handoffReason,
+  priority: handoffPriority,
+  mode,
+  confidence,
+  ...(verificationPassed ? {} : { issues: verification.issues }),
+  actions
+});
+
+    if (handoffRes.ok) actions.push(`handoff_created:${handoffRes.data.handoffId}`);
+    else actions.push(`handoff_failed:${handoffRes.error}`);
+  }
 
   // 7) Email follow-up (shadow returns shadow_email; live still mocked for now)
   const emailSubject = `FlowOps Support Ticket ${ticketRes.data.ticketId}: Update`;

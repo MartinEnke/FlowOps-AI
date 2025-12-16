@@ -9,14 +9,15 @@ datasource db {
 }
 
 model Customer {
-  id           String        @id
-  email        String
-  plan         String
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id        String   @id
+  email     String
+  plan      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   interactions Interaction[]
   tickets      Ticket[]
+  handoffs     Handoff[]
 }
 
 model Interaction {
@@ -50,5 +51,30 @@ model Ticket {
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
+  handoffs Handoff[] // ✅ ADD THIS
+
   @@index([customerId])
+}
+
+model Handoff {
+  id          String  @id @default(cuid())
+  customerId  String
+  ticketId    String // ✅ make required
+  reason      String
+  priority    String  @default("med")
+  status      String  @default("pending")
+  mode        String
+  confidence  Float?
+  issuesJson  String?
+  actionsJson String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  ticket   Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade) // ✅ ADD THIS
+
+  @@index([customerId])
+  @@index([status])
+  @@index([ticketId]) // ✅ nice to have
 }
