@@ -2,6 +2,8 @@ import Fastify from "fastify";
 import dotenv from "dotenv";
 import { getAccountStatus } from "./tools/accountTool";
 import { decideRefund, shouldEscalate } from "./agent/policy";
+import { runFlowOpsAgent } from "./agent/flowAgent";
+import { ChatRequest } from "./agent/types";
 
 
 
@@ -37,6 +39,14 @@ server.get("/debug/policy/escalate/:plan/:confidence/:verified", async (req) => 
     confidence: Number(confidence),
     verificationPassed: verified === "true"
   });
+});
+
+server.post("/chat", async (req, reply) => {
+  const body = req.body as ChatRequest;
+
+  const result = await runFlowOpsAgent(body);
+
+  return result;
 });
 
 
