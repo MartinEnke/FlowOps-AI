@@ -4,7 +4,7 @@ import { Mode } from "../agent/types";
 
 export async function createHandoff(input: {
   customerId: string;
-  ticketId?: string;              // ✅ optional (fixes your call)
+  ticketId?: string;
   reason: string;
   priority: "low" | "med" | "high";
   mode: Mode;
@@ -12,7 +12,6 @@ export async function createHandoff(input: {
   issues?: string[];
   actions: string[];
 }): Promise<ToolResult<{ handoffId: string; status: "pending" }>> {
-  // Shadow = no persistence
   if (input.mode !== "live") {
     return { ok: true, data: { handoffId: "shadow_handoff", status: "pending" } };
   }
@@ -28,11 +27,11 @@ export async function createHandoff(input: {
         issuesJson: input.issues ? JSON.stringify(input.issues) : null,
         actionsJson: JSON.stringify(input.actions),
 
-        // ✅ relation-safe way
+        // ✅ relation-safe
         customer: { connect: { id: input.customerId } },
 
-        // ✅ only set if present
-        ticketId: input.ticketId ?? null
+        // ✅ relation-safe (only if present)
+        ...(input.ticketId ? { ticket: { connect: { id: input.ticketId } } } : {})
       }
     });
 

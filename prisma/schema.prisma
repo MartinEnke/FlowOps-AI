@@ -31,11 +31,14 @@ model Interaction {
   escalated   Boolean
   verified    Boolean
   actionsJson String
+  requestId   String?   // ✅ MUST exist
+  ticketId    String?   // ✅ MUST exist
   createdAt   DateTime @default(now())
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId])
+  @@unique([customerId, requestId])
 }
 
 model Ticket {

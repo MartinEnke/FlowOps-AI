@@ -3,7 +3,8 @@ export type Mode = "shadow" | "live";
 export type ChatRequest = {
   customerId: string;
   message: string;
-  mode?: Mode; // default shadow
+  mode?: Mode;
+  requestId?: string; // ✅ NEW
 };
 
 export type ChatResponse = {
@@ -14,3 +15,4 @@ export type ChatResponse = {
   confidence: number;
   actions: string[];
 };
+

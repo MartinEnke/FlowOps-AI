@@ -9,6 +9,16 @@ import { decideRefund, shouldEscalate, Plan } from "./policy";
 import { ChatRequest, ChatResponse, Mode } from "./types";
 import { verifyReply, type VerificationInput } from "./verifier";
 import { prisma } from "../db/prisma";
+import crypto from "crypto";
+
+function normalizeMessage(s: string) {
+  return s.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function computeFallbackRequestId(params: { customerId: string; message: string; mode: Mode }) {
+  const base = `${params.customerId}|${normalizeMessage(params.message)}|${params.mode}`;
+  return crypto.createHash("sha256").update(base).digest("hex").slice(0, 24);
+}
 
 function estimateConfidence(params: { toolOk: boolean; message: string }): number {
   const { toolOk, message } = params;
@@ -50,6 +60,8 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
   // Helper: only persists in LIVE mode
   async function logInteractionLive(params: {
     customerId: string;
+    requestId: string;
+    ticketId?: string;
     requestText: string;
     replyText: string;
     mode: Mode;
@@ -68,19 +80,28 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
       create: { id: params.customerId, email: params.email, plan: params.plan }
     });
 
-    await prisma.interaction.create({
-      data: {
-        customerId: params.customerId,
-        channel: "chat",
-        requestText: params.requestText,
-        replyText: params.replyText,
-        mode: params.mode,
-        confidence: params.confidence,
-        escalated: params.escalated,
-        verified: params.verified,
-        actionsJson: JSON.stringify(params.actions)
-      }
-    });
+    // 7.3: interaction write is idempotent via @@unique([customerId, requestId])
+    try {
+      await prisma.interaction.create({
+        data: {
+          customerId: params.customerId,
+          channel: "chat",
+          requestText: params.requestText,
+          replyText: params.replyText,
+          mode: params.mode,
+          confidence: params.confidence,
+          escalated: params.escalated,
+          verified: params.verified,
+          actionsJson: JSON.stringify(params.actions),
+          requestId: params.requestId,
+          ticketId: params.ticketId ?? null
+        }
+      });
+    } catch (e: any) {
+      // If the same requestId is logged twice (race), ignore the duplicate.
+      // Prisma uses P2002 for unique constraint violation.
+      if (e?.code !== "P2002") throw e;
+    }
   }
 
   // 0) Validate input
@@ -92,6 +113,42 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
       confidence: 0.3,
       actions
     };
+  }
+
+  // 7.3: Idempotency key (prefer client-provided requestId)
+  const requestId =
+    input.requestId?.trim() ||
+    computeFallbackRequestId({ customerId: input.customerId, message: input.message, mode });
+
+  // 7.3: Replay protection (LIVE only) — return the previously saved response
+  if (mode === "live") {
+    const existing = await prisma.interaction.findFirst({
+  where: {
+    customerId: input.customerId,
+    requestId
+  },
+  select: {
+    replyText: true,
+    escalated: true,
+    verified: true,
+    confidence: true,
+    actionsJson: true,
+    ticketId: true
+  }
+});
+
+    if (existing) {
+  actions.push("idempotency_replay");
+
+  return {
+    reply: existing.replyText,
+    mode,
+    escalated: existing.escalated,
+    confidence: existing.confidence,
+    actions: [...JSON.parse(existing.actionsJson), ...actions],
+    ...(existing.ticketId ? { ticketId: existing.ticketId } : {})
+  };
+}
   }
 
   // 7.2 (Option A): Load recent memory (LIVE only)
@@ -213,7 +270,7 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
 
   // 4) Compose reply draft (this is what we verify)
   const continuityLine = hadRecentEscalation
-    ? `\n\nI see this is a follow-up to a recent escalated case — I’ll be extra careful and keep the context.`
+    ? `I see this is a follow-up to a recent escalated case — I’ll be extra careful and keep the context.`
     : "";
 
   const replyDraft = [
@@ -221,7 +278,7 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
     `Plan: **${account.plan}** · API key: **${account.apiKeyStatus}** · Last invoice: **${billing.lastInvoiceId}** (${billing.invoiceStatus})`,
     refundLine ? `\n${refundLine}` : "",
     `\nI’ll continue helping you here — and I sent a follow-up email to **${account.email}**.`,
-    continuityLine
+    continuityLine ? `\n\n${continuityLine}` : ""
   ]
     .filter(Boolean)
     .join("\n");
@@ -260,100 +317,125 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
   });
 
   // 7.2 (Option A): memory-based safety net
-// If this customer recently required escalation, be conservative on follow-ups.
-const memoryForcesEscalation = hadRecentEscalation;
+  const memoryForcesEscalation = hadRecentEscalation;
 
-if (memoryForcesEscalation) {
-  escalationDecision.escalate = true;
-  actions.push("memory_recent_escalation_escalate");
-}
+  if (memoryForcesEscalation) {
+    escalationDecision.escalate = true;
+    actions.push("memory_recent_escalation_escalate");
+  }
 
-// Keep a single consistent confidence value whenever we escalate.
-// (So response, handoff row, and interaction log match.)
-const finalConfidence = escalationDecision.escalate ? Math.min(confidence, 0.6) : confidence;
+  // Keep a single consistent confidence value whenever we escalate.
+  const finalConfidence = escalationDecision.escalate ? Math.min(confidence, 0.6) : confidence;
 
-if (escalationDecision.escalate) {
-  actions.push("escalate_to_human");
+  if (escalationDecision.escalate) {
+    actions.push("escalate_to_human");
 
-  const handoffReason =
-    !verificationPassed
-      ? "verification_failed"
-      : memoryForcesEscalation
-        ? "recent_escalation"
-        : confidence < 0.7
-          ? "low_confidence"
-          : "policy_requires_human";
+    const handoffReason =
+      !verificationPassed
+        ? "verification_failed"
+        : memoryForcesEscalation
+          ? "recent_escalation"
+          : confidence < 0.7
+            ? "low_confidence"
+            : "policy_requires_human";
 
-  // Follow-ups after an escalation should not be "low" priority.
-  const handoffPriority: "low" | "med" | "high" =
-    plan === "enterprise"
-      ? "high"
-      : memoryForcesEscalation
-        ? "med"
-        : confidence < 0.7
+    // Follow-ups after an escalation should not be "low" priority.
+    const handoffPriority: "low" | "med" | "high" =
+      plan === "enterprise"
+        ? "high"
+        : memoryForcesEscalation
           ? "med"
-          : "low";
+          : confidence < 0.7
+            ? "med"
+            : "low";
 
-  const handoffRes = await createHandoff({
-    customerId: input.customerId,
-    ticketId: ticketRes.data.ticketId,
-    reason: handoffReason,
-    priority: handoffPriority,
-    mode,
-    confidence: finalConfidence,
-    ...(verificationPassed ? {} : { issues: verification.issues }),
-    actions
+    const handoffRes = await createHandoff({
+      customerId: input.customerId,
+      ticketId: ticketRes.data.ticketId,
+      reason: handoffReason,
+      priority: handoffPriority,
+      mode,
+      confidence: finalConfidence,
+      ...(verificationPassed ? {} : { issues: verification.issues }),
+      actions
+    });
+
+    if (handoffRes.ok) actions.push(`handoff_created:${handoffRes.data.handoffId}`);
+    else actions.push(`handoff_failed:${handoffRes.error}`);
+  }
+
+  // 7) Email follow-up (shadow returns shadow_email; live still mocked for now)
+  const emailSubject = `FlowOps Support Ticket ${ticketRes.data.ticketId}: Update`;
+
+  const emailBody = [
+    `Hi there,`,
+    ``,
+    `Thanks for reaching out. I checked your account and opened ticket ${ticketRes.data.ticketId}.`,
+    `Plan: ${account.plan}`,
+    `API key status: ${account.apiKeyStatus}`,
+    `Last invoice: ${billing.lastInvoiceId} (${billing.invoiceStatus})`,
+    refundLine ? `` : ``,
+    refundLine ? refundLine : ``,
+    ``,
+    escalationDecision.escalate
+      ? `Because this case needs extra attention, I’m escalating it to a human specialist.`
+      : `I’ll keep you updated here as we proceed.`,
+    ``,
+    `— FlowOps AI`
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const emailRes = await sendEmail({
+    to: account.email,
+    subject: emailSubject,
+    body: emailBody,
+    mode
   });
 
-  if (handoffRes.ok) actions.push(`handoff_created:${handoffRes.data.handoffId}`);
-  else actions.push(`handoff_failed:${handoffRes.error}`);
-}
+  if (emailRes.ok) actions.push(`email_sent:${emailRes.data.messageId}`);
+  else actions.push(`email_failed:${emailRes.error}`);
 
-// 7) Email follow-up (shadow returns shadow_email; live still mocked for now)
-const emailSubject = `FlowOps Support Ticket ${ticketRes.data.ticketId}: Update`;
+  // 8) Final reply + DB log (LIVE only)
+  if (escalationDecision.escalate) {
+    const finalReply =
+      `I opened ticket **${ticketRes.data.ticketId}** and pulled your account/billing details.\n\n` +
+      `To be safe, I’m escalating this to a human agent to double-check everything before confirming next steps.`;
 
-const emailBody = [
-  `Hi there,`,
-  ``,
-  `Thanks for reaching out. I checked your account and opened ticket ${ticketRes.data.ticketId}.`,
-  `Plan: ${account.plan}`,
-  `API key status: ${account.apiKeyStatus}`,
-  `Last invoice: ${billing.lastInvoiceId} (${billing.invoiceStatus})`,
-  refundLine ? `` : ``,
-  refundLine ? refundLine : ``,
-  ``,
-  escalationDecision.escalate
-    ? `Because this case needs extra attention, I’m escalating it to a human specialist.`
-    : `I’ll keep you updated here as we proceed.`,
-  ``,
-  `— FlowOps AI`
-]
-  .filter(Boolean)
-  .join("\n");
+    await logInteractionLive({
+      customerId: input.customerId,
+      requestId,
+      ticketId: ticketRes.data.ticketId,
+      requestText: input.message,
+      replyText: finalReply,
+      mode,
+      confidence: finalConfidence,
+      escalated: true,
+      verified: verificationPassed,
+      actions,
+      email: account.email,
+      plan: account.plan
+    });
 
-const emailRes = await sendEmail({
-  to: account.email,
-  subject: emailSubject,
-  body: emailBody,
-  mode
-});
-
-if (emailRes.ok) actions.push(`email_sent:${emailRes.data.messageId}`);
-else actions.push(`email_failed:${emailRes.error}`);
-
-// 8) Final reply + DB log (LIVE only)
-if (escalationDecision.escalate) {
-  const finalReply =
-    `I opened ticket **${ticketRes.data.ticketId}** and pulled your account/billing details.\n\n` +
-    `To be safe, I’m escalating this to a human agent to double-check everything before confirming next steps.`;
+    return {
+      reply: finalReply,
+      mode,
+      ticketId: ticketRes.data.ticketId,
+      escalated: true,
+      confidence: finalConfidence,
+      actions
+    };
+  }
 
   await logInteractionLive({
     customerId: input.customerId,
+    requestId,
+    ticketId: ticketRes.data.ticketId,
     requestText: input.message,
-    replyText: finalReply,
+    replyText: replyDraft,
     mode,
     confidence: finalConfidence,
-    escalated: true,
+    escalated: false,
     verified: verificationPassed,
     actions,
     email: account.email,
@@ -361,34 +443,11 @@ if (escalationDecision.escalate) {
   });
 
   return {
-    reply: finalReply,
+    reply: replyDraft,
     mode,
     ticketId: ticketRes.data.ticketId,
-    escalated: true,
+    escalated: false,
     confidence: finalConfidence,
     actions
   };
-}
-
-await logInteractionLive({
-  customerId: input.customerId,
-  requestText: input.message,
-  replyText: replyDraft,
-  mode,
-  confidence: finalConfidence,
-  escalated: false,
-  verified: verificationPassed,
-  actions,
-  email: account.email,
-  plan: account.plan
-});
-
-return {
-  reply: replyDraft,
-  mode,
-  ticketId: ticketRes.data.ticketId,
-  escalated: false,
-  confidence: finalConfidence,
-  actions
-};
 }
