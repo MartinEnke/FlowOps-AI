@@ -1,3 +1,5 @@
+// prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,18 +9,36 @@ datasource db {
 }
 
 model Customer {
-  id        String   @id
-  email     String
-  plan      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String        @id
+  email        String
+  plan         String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
-  tickets       Ticket[]
-  interactions  Interaction[]
+  interactions Interaction[]
+  tickets      Ticket[]
+}
+
+model Interaction {
+  id          String   @id @default(cuid())
+  customerId  String
+  channel     String
+  requestText String
+  replyText   String
+  mode        String
+  confidence  Float
+  escalated   Boolean
+  verified    Boolean
+  actionsJson String
+  createdAt   DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
 }
 
 model Ticket {
-  id         String   @id
+  id         String   @id @default(cuid())
   customerId String
   subject    String
   summary    String
@@ -28,21 +48,7 @@ model Ticket {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  customer Customer @relation(fields: [customerId], references: [id])
-}
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-model Interaction {
-  id          String   @id @default(cuid())
-  customerId  String
-  channel     String   // "chat" for now, later "email"
-  requestText String
-  replyText   String
-  mode        String   // "shadow" | "live"
-  confidence  Float
-  escalated   Boolean
-  verified    Boolean
-  actionsJson String
-  createdAt   DateTime @default(now())
-
-  customer Customer @relation(fields: [customerId], references: [id])
+  @@index([customerId])
 }

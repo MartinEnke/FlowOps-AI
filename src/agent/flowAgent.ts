@@ -5,6 +5,7 @@ import { sendEmail } from "../tools/emailTool";
 import { decideRefund, shouldEscalate, Plan } from "./policy";
 import { ChatRequest, ChatResponse, Mode } from "./types";
 import { verifyReply, type VerificationInput } from "./verifier";
+import { prisma } from "../db/prisma";
 
 function estimateConfidence(params: { toolOk: boolean; message: string }): number {
   const { toolOk, message } = params;
@@ -26,6 +27,42 @@ function summarizeIntent(message: string) {
 export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse> {
   const mode: Mode = input.mode ?? "shadow";
   const actions: string[] = [];
+
+  // Helper: only persists in LIVE mode
+  async function logInteractionLive(params: {
+    customerId: string;
+    requestText: string;
+    replyText: string;
+    mode: Mode;
+    confidence: number;
+    escalated: boolean;
+    verified: boolean;
+    actions: string[];
+    email: string;
+    plan: string;
+  }) {
+    if (params.mode !== "live") return;
+
+    await prisma.customer.upsert({
+      where: { id: params.customerId },
+      update: { email: params.email, plan: params.plan },
+      create: { id: params.customerId, email: params.email, plan: params.plan }
+    });
+
+    await prisma.interaction.create({
+      data: {
+        customerId: params.customerId,
+        channel: "chat",
+        requestText: params.requestText,
+        replyText: params.replyText,
+        mode: params.mode,
+        confidence: params.confidence,
+        escalated: params.escalated,
+        verified: params.verified,
+        actionsJson: JSON.stringify(params.actions)
+      }
+    });
+  }
 
   // 0) Validate input
   if (!input.customerId?.trim()) {
@@ -93,8 +130,13 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
   if (!ticketRes.ok) {
     actions.push("ticket_create_failed");
 
+    const finalReply =
+      `I found your account details but couldn't create a ticket (${ticketRes.error}). ` +
+      `I’m escalating this to a human agent.`;
+
+    // We don’t have verified/tool-based details to log safely here, so no DB write.
     return {
-      reply: `I found your account details but couldn't create a ticket (${ticketRes.error}). I’m escalating this to a human agent.`,
+      reply: finalReply,
       mode,
       escalated: true,
       confidence: Math.min(confidence, 0.6),
@@ -174,7 +216,7 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
 
   if (escalationDecision.escalate) actions.push("escalate_to_human");
 
-  // 7) Email follow-up
+  // 7) Email follow-up (shadow returns shadow_email; live still mocked for now)
   const emailSubject = `FlowOps Support Ticket ${ticketRes.data.ticketId}: Update`;
 
   const emailBody = [
@@ -206,12 +248,27 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
   if (emailRes.ok) actions.push(`email_sent:${emailRes.data.messageId}`);
   else actions.push(`email_failed:${emailRes.error}`);
 
-  // 8) Final reply (if escalation is required, be conservative)
+  // 8) Final reply + DB log (LIVE only)
   if (escalationDecision.escalate) {
+    const finalReply =
+      `I opened ticket **${ticketRes.data.ticketId}** and pulled your account/billing details.\n\n` +
+      `To be safe, I’m escalating this to a human agent to double-check everything before confirming next steps.`;
+
+    await logInteractionLive({
+      customerId: input.customerId,
+      requestText: input.message,
+      replyText: finalReply,
+      mode,
+      confidence: Math.min(confidence, 0.6),
+      escalated: true,
+      verified: verificationPassed,
+      actions,
+      email: account.email,
+      plan: account.plan
+    });
+
     return {
-      reply:
-        `I opened ticket **${ticketRes.data.ticketId}** and pulled your account/billing details.\n\n` +
-        `To be safe, I’m escalating this to a human agent to double-check everything before confirming next steps.`,
+      reply: finalReply,
       mode,
       ticketId: ticketRes.data.ticketId,
       escalated: true,
@@ -219,6 +276,19 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
       actions
     };
   }
+
+  await logInteractionLive({
+    customerId: input.customerId,
+    requestText: input.message,
+    replyText: replyDraft,
+    mode,
+    confidence,
+    escalated: false,
+    verified: verificationPassed,
+    actions,
+    email: account.email,
+    plan: account.plan
+  });
 
   return {
     reply: replyDraft,
