@@ -1,10 +1,11 @@
-import Fastify from "fastify";
+import Fastify, { FastifyRequest } from "fastify";
 import dotenv from "dotenv";
 
 import { getAccountStatus } from "./tools/accountTool";
 import { decideRefund, shouldEscalate } from "./agent/policy";
 import { runFlowOpsAgent } from "./agent/flowAgent";
 import { ChatRequest } from "./agent/types";
+import { prisma } from "./db/prisma";
 
 dotenv.config();
 
@@ -19,36 +20,54 @@ server.get("/health", async () => {
 });
 
 // Debug: tools
-server.get("/debug/account/:customerId", async (req) => {
-  const { customerId } = req.params as { customerId: string };
-  return getAccountStatus({ customerId });
-});
+server.get(
+  "/debug/account/:customerId",
+  async (req: FastifyRequest<{ Params: { customerId: string } }>) => {
+    return getAccountStatus({ customerId: req.params.customerId });
+  }
+);
 
 // Debug: policy
-server.get("/debug/policy/refund/:plan/:amount", async (req) => {
-  const { plan, amount } = req.params as { plan: string; amount: string };
-  return decideRefund({ plan: plan as any, refundableAmount: Number(amount) });
-});
+server.get(
+  "/debug/policy/refund/:plan/:amount",
+  async (req: FastifyRequest<{ Params: { plan: string; amount: string } }>) => {
+    return decideRefund({
+      plan: req.params.plan as any,
+      refundableAmount: Number(req.params.amount)
+    });
+  }
+);
 
-server.get("/debug/policy/escalate/:plan/:confidence/:verified", async (req) => {
-  const { plan, confidence, verified } = req.params as {
-    plan: string;
-    confidence: string;
-    verified: string;
-  };
+server.get(
+  "/debug/policy/escalate/:plan/:confidence/:verified",
+  async (req: FastifyRequest<{ Params: { plan: string; confidence: string; verified: string } }>) => {
+    return shouldEscalate({
+      plan: req.params.plan as any,
+      confidence: Number(req.params.confidence),
+      verificationPassed: req.params.verified === "true"
+    });
+  }
+);
 
-  return shouldEscalate({
-    plan: plan as any,
-    confidence: Number(confidence),
-    verificationPassed: verified === "true"
-  });
-});
+// Debug: DB interactions
+server.get(
+  "/debug/interactions/:customerId",
+  async (req: FastifyRequest<{ Params: { customerId: string } }>) => {
+    return prisma.interaction.findMany({
+      where: { customerId: req.params.customerId },
+      orderBy: { createdAt: "desc" },
+      take: 20
+    });
+  }
+);
 
 // Main: chat channel
-server.post("/chat", async (req) => {
-  const body = req.body as ChatRequest;
-  return runFlowOpsAgent(body);
-});
+server.post(
+  "/chat",
+  async (req: FastifyRequest<{ Body: ChatRequest }>) => {
+    return runFlowOpsAgent(req.body);
+  }
+);
 
 const start = async () => {
   try {
