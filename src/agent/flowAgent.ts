@@ -4,12 +4,9 @@ import { upsertTicket } from "../tools/ticketTool";
 import { sendEmail } from "../tools/emailTool";
 import { decideRefund, shouldEscalate, Plan } from "./policy";
 import { ChatRequest, ChatResponse, Mode } from "./types";
+import { verifyReply, type VerificationInput } from "./verifier";
 
-function estimateConfidence(params: {
-  toolOk: boolean;
-  message: string;
-}): number {
-  // Simple stub for now. We'll replace with LLM-based or classifier later.
+function estimateConfidence(params: { toolOk: boolean; message: string }): number {
   const { toolOk, message } = params;
   const looksClear = message.length >= 10;
   if (!toolOk) return 0.4;
@@ -22,7 +19,7 @@ function summarizeIntent(message: string) {
   return {
     apiIssue: msg.includes("api") || msg.includes("key"),
     billingIssue: msg.includes("bill") || msg.includes("invoice") || msg.includes("refund"),
-    asksRefund: msg.includes("refund"),
+    asksRefund: msg.includes("refund")
   };
 }
 
@@ -30,6 +27,7 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
   const mode: Mode = input.mode ?? "shadow";
   const actions: string[] = [];
 
+  // 0) Validate input
   if (!input.customerId?.trim()) {
     return {
       reply: "Please provide a valid customerId so I can look up your account.",
@@ -47,9 +45,15 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
   const toolOk = accountRes.ok && billingRes.ok;
   const confidence = estimateConfidence({ toolOk, message: input.message });
 
-  // If tools fail, escalate
   if (!toolOk) {
-    const reason = !accountRes.ok ? accountRes.error : !billingRes.ok ? billingRes.error : "Unknown tool error";
+    const reason = !accountRes.ok
+      ? accountRes.error
+      : !billingRes.ok
+        ? billingRes.error
+        : "Unknown tool error";
+
+    actions.push("tool_fetch_failed");
+
     return {
       reply: `I couldn’t retrieve the necessary account/billing details (${reason}). I’m escalating this to a human agent.`,
       mode,
@@ -63,24 +67,9 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
   const billing = billingRes.data;
 
   const intent = summarizeIntent(input.message);
-
-  // 2) Policy decisions
   const plan = account.plan as Plan;
 
-  // For now: verification is always "passed" because we aren't using an LLM yet.
-  const verificationPassed = true;
-
-  const escalationDecision = shouldEscalate({
-    plan,
-    confidence,
-    verificationPassed
-  });
-
-  if (escalationDecision.escalate) {
-    actions.push("escalate_to_human");
-  }
-
-  // 3) Create a ticket (in shadow it returns shadow_ticket)
+  // 2) Create a ticket early (so we always have a reference)
   const subject = intent.billingIssue
     ? "Billing issue"
     : intent.apiIssue
@@ -93,19 +82,19 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
     `Last invoice: ${billing.lastInvoiceId} (${billing.invoiceStatus}, amount ${billing.lastInvoiceAmount})`
   ].join("\n");
 
-  const priority = escalationDecision.escalate ? "high" : "med";
-
   const ticketRes = await upsertTicket({
     customerId: input.customerId,
     subject,
     summary,
-    priority,
+    priority: "med",
     mode
   });
 
   if (!ticketRes.ok) {
+    actions.push("ticket_create_failed");
+
     return {
-      reply: `I found your account details but couldn't create a ticket (${ticketRes.error}). Please try again or I can escalate to a human agent.`,
+      reply: `I found your account details but couldn't create a ticket (${ticketRes.error}). I’m escalating this to a human agent.`,
       mode,
       escalated: true,
       confidence: Math.min(confidence, 0.6),
@@ -115,8 +104,10 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
 
   actions.push(`ticket_created:${ticketRes.data.ticketId}`);
 
-  // 4) Refund logic (only if asked)
+  // 3) Refund logic (only if asked) + track what we *claim* for verification
   let refundLine = "";
+  let refundClaim: { approved: boolean; amount: number; needsHuman: boolean } | undefined;
+
   if (intent.asksRefund) {
     const refundDecision = decideRefund({
       plan,
@@ -125,18 +116,67 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
 
     if (!refundDecision.allow) {
       refundLine = `Refund request: not eligible. Reason: ${refundDecision.reason}`;
+      refundClaim = { approved: false, amount: 0, needsHuman: false };
       actions.push("refund_denied");
     } else if (refundDecision.needsHuman) {
       refundLine = `Refund request: eligible up to €${refundDecision.maxAmount}, but requires human approval. (${refundDecision.reason})`;
+      refundClaim = { approved: true, amount: refundDecision.maxAmount, needsHuman: true };
       actions.push("refund_needs_human");
     } else {
       refundLine = `Refund request: approved for €${refundDecision.maxAmount}. (${refundDecision.reason})`;
+      refundClaim = { approved: true, amount: refundDecision.maxAmount, needsHuman: false };
       actions.push("refund_auto_approved");
     }
   }
 
-  // 5) Email follow-up (shadow = no real send, just returns shadow_email)
+  // 4) Compose reply draft (this is what we verify)
+  const replyDraft = [
+    `✅ I opened ticket **${ticketRes.data.ticketId}** for you.`,
+    `Plan: **${account.plan}** · API key: **${account.apiKeyStatus}** · Last invoice: **${billing.lastInvoiceId}** (${billing.invoiceStatus})`,
+    refundLine ? `\n${refundLine}` : "",
+    `\nI’ll continue helping you here — and I sent a follow-up email to **${account.email}**.`
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  // 5) Verify the reply draft against tool outputs
+  const verificationInput: VerificationInput = {
+    replyDraft,
+    account: {
+      plan,
+      apiKeyStatus: account.apiKeyStatus,
+      email: account.email
+    },
+    billing: {
+      lastInvoiceId: billing.lastInvoiceId,
+      invoiceStatus: billing.invoiceStatus,
+      refundableAmount: billing.refundableAmount
+    },
+    claimedRefund: refundClaim
+  };
+
+  const verification = verifyReply(verificationInput);
+  const verificationPassed = verification.passed;
+
+  if (!verificationPassed) {
+    actions.push("verification_failed");
+    actions.push(...verification.issues.map((i) => `verify_issue:${i}`));
+  } else {
+    actions.push("verification_passed");
+  }
+
+  // 6) Escalation decision is based on confidence + verification
+  const escalationDecision = shouldEscalate({
+    plan,
+    confidence,
+    verificationPassed
+  });
+
+  if (escalationDecision.escalate) actions.push("escalate_to_human");
+
+  // 7) Email follow-up
   const emailSubject = `FlowOps Support Ticket ${ticketRes.data.ticketId}: Update`;
+
   const emailBody = [
     `Hi there,`,
     ``,
@@ -152,7 +192,9 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
       : `I’ll keep you updated here as we proceed.`,
     ``,
     `— FlowOps AI`
-  ].filter(Boolean).join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const emailRes = await sendEmail({
     to: account.email,
@@ -164,21 +206,25 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
   if (emailRes.ok) actions.push(`email_sent:${emailRes.data.messageId}`);
   else actions.push(`email_failed:${emailRes.error}`);
 
-  // 6) Compose reply for chat
-  const replyLines = [
-    `✅ I opened ticket **${ticketRes.data.ticketId}** for you.`,
-    `Plan: **${account.plan}** · API key: **${account.apiKeyStatus}** · Last invoice: **${billing.lastInvoiceId}** (${billing.invoiceStatus})`,
-    refundLine ? `\n${refundLine}` : "",
-    escalationDecision.escalate
-      ? `\nI’m escalating this to a human agent to make sure it’s handled safely.`
-      : `\nI’ll continue helping you here — and I sent a follow-up email to **${account.email}**.`
-  ].filter(Boolean).join("\n");
+  // 8) Final reply (if escalation is required, be conservative)
+  if (escalationDecision.escalate) {
+    return {
+      reply:
+        `I opened ticket **${ticketRes.data.ticketId}** and pulled your account/billing details.\n\n` +
+        `To be safe, I’m escalating this to a human agent to double-check everything before confirming next steps.`,
+      mode,
+      ticketId: ticketRes.data.ticketId,
+      escalated: true,
+      confidence: Math.min(confidence, 0.6),
+      actions
+    };
+  }
 
   return {
-    reply: replyLines,
+    reply: replyDraft,
     mode,
     ticketId: ticketRes.data.ticketId,
-    escalated: escalationDecision.escalate,
+    escalated: false,
     confidence,
     actions
   };

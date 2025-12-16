@@ -26,38 +26,69 @@ export type VerificationResult = {
 
 export function verifyReply(input: VerificationInput): VerificationResult {
   const issues: string[] = [];
-  const { replyDraft, account, billing, claimedRefund } = input;
 
-  // Basic “fact presence” checks
-  if (replyDraft.includes("Plan:") && !replyDraft.includes(account.plan)) {
-    issues.push("Reply mentions plan but not the correct plan value.");
+  const {
+    replyDraft,
+    account,
+    billing,
+    claimedRefund
+  } = input;
+
+  // Normalize once for safer matching
+  const draft = replyDraft.toLowerCase();
+
+  // --- Account checks ---
+  if (draft.includes("plan:") && !draft.includes(account.plan.toLowerCase())) {
+    issues.push("Reply mentions plan but does not match the account plan.");
   }
 
-  if (replyDraft.includes("API key:") && !replyDraft.includes(account.apiKeyStatus)) {
+  if (
+    draft.includes("api key") &&
+    !draft.includes(account.apiKeyStatus.toLowerCase())
+  ) {
     issues.push("Reply mentions API key status but does not match tool output.");
   }
 
-  if (replyDraft.includes("Last invoice:") && !replyDraft.includes(billing.lastInvoiceId)) {
-    issues.push("Reply mentions last invoice but does not match tool output.");
+  // --- Billing checks ---
+  if (
+    draft.includes("last invoice") &&
+    !draft.includes(billing.lastInvoiceId.toLowerCase())
+  ) {
+    issues.push("Reply mentions last invoice but invoice ID does not match.");
   }
 
-  if (replyDraft.includes(billing.invoiceStatus) === false && replyDraft.includes("Last invoice:")) {
+  if (
+    draft.includes("last invoice") &&
+    !draft.includes(billing.invoiceStatus.toLowerCase())
+  ) {
     issues.push("Reply mentions invoice but does not include correct invoice status.");
   }
 
-  // Refund claim sanity checks
+  // --- Refund sanity checks ---
   if (claimedRefund) {
     const { approved, amount } = claimedRefund;
 
     if (approved && amount > billing.refundableAmount) {
-      issues.push(`Refund amount claim (€${amount}) exceeds refundableAmount (€${billing.refundableAmount}).`);
+      issues.push(
+        `Refund amount (€${amount}) exceeds refundable amount (€${billing.refundableAmount}).`
+      );
     }
 
-    // If reply says approved but doesn’t contain the amount, that’s suspicious
-    if (approved && !replyDraft.includes(`€${amount}`)) {
-      issues.push("Reply claims refund approval but does not include the approved amount.");
+    if (approved && !draft.includes(`€${amount}`)) {
+      issues.push(
+        "Reply claims refund approval but does not include the approved amount."
+      );
+    }
+
+    if (!approved && draft.includes("refund") && draft.includes("approved")) {
+      issues.push(
+        "Reply suggests refund approval but refund was not approved."
+      );
     }
   }
 
-  return { passed: issues.length === 0, issues };
+  return {
+    passed: issues.length === 0,
+    issues
+  };
 }
