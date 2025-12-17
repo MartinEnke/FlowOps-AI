@@ -1,15 +1,24 @@
 # FlowOps AI
 
+![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)
+![Fastify](https://img.shields.io/badge/Fastify-Production--Ready-black)
+![Prisma](https://img.shields.io/badge/Prisma-7.x-2D3748)
+![SQLite](https://img.shields.io/badge/Database-SQLite-blue)
+![Architecture](https://img.shields.io/badge/Architecture-Agentic%20Systems-success)
+![Status](https://img.shields.io/badge/Status-Production--Grade-brightgreen)
+
 **A Production-Grade Customer Engagement Agent**  
 _TypeScript · Agents · Policy · Verification · Human-in-the-Loop_
 
 ---
 
-## Overview
+## Executive Summary (For Recruiters & Reviewers)
 
-**FlowOps AI** is a real-world, end-to-end **agentic customer support system** designed to simulate how modern SaaS companies automate support workflows **without sacrificing safety, traceability, or human oversight**.
+**FlowOps AI** is a **production-grade, policy-driven AI agent system** that demonstrates how modern SaaS companies safely deploy autonomous agents **with guardrails, verification, auditability, and human oversight**.
 
-This project focuses on **agent orchestration and production patterns**, not just prompt-based AI responses.
+Unlike prompt-only demos, this system executes **real business workflows** while enforcing deterministic rules, preventing unsafe actions, and escalating to humans when needed.
+
+> This project is designed to showcase **backend engineering maturity**, **agent orchestration**, and **real-world production patterns**.
 
 ---
 
@@ -19,14 +28,14 @@ Most “AI agent” demos stop at tool-calling.
 
 **FlowOps AI goes further:**
 
-- Executes full business workflows (account → billing → ticket → email)
-- Applies deterministic policy logic (refund + escalation rules)
-- Verifies agent outputs before acting (anti-hallucination guardrails)
-- Supports **shadow vs live execution**
+- Executes full workflows (account → billing → ticket → email)
+- Applies deterministic **policy engines** (refunds, escalation)
+- Verifies agent outputs before execution (anti-hallucination)
+- Supports **shadow vs live** execution
 - Persists full **audit trails**
-- Escalates to humans when confidence drops or verification fails
-- Prevents duplicate side-effects via **idempotency + replay protection**
-- Exposes **ops metrics** for monitoring and iteration
+- Escalates to humans based on confidence & verification
+- Prevents duplicate side-effects via **idempotency**
+- Exposes **ops metrics** for observability
 
 This mirrors how AI agents are deployed in **real production environments**.
 
@@ -55,98 +64,47 @@ SQLite (Prisma 7)
 
 ---
 
-## Core Concepts
+## Core Production Concepts
 
-### 1) Shadow vs Live Mode
-
-- **Shadow**: Executes logic without persistence (safe testing / demos)
+### Shadow vs Live Mode
+- **Shadow**: Executes logic without persistence (safe demos & testing)
 - **Live**: Persists customers, tickets, interactions, and handoffs
 
----
-
-### 2) Policy Engine
-
-Deterministic business rules decide:
-
+### Policy Engine
+Deterministic rules decide:
 - Refund eligibility
 - Auto-approval vs human review
 - Escalation thresholds
 
----
-
-### 3) Verification Layer
-
+### Verification Layer
 Every agent reply is validated against:
-
 - Tool outputs (account + billing)
 - Refund limits
-- Claimed actions
-
+- Claimed actions  
 Unsafe replies are **blocked and escalated**.
 
----
+### Confidence-Driven Escalation
+Low confidence or verification failure triggers **human handoff**.
 
-### 4) Confidence-Driven Escalation
-
-Low confidence or verification failure triggers a **human handoff**.
-
----
-
-### 5) Human Handoff Queue (Step 7.1 ✅)
-
-Escalations create a **Handoff** record containing:
-
+### Human Handoff Queue
+Escalations create structured handoff records including:
 - Reason, priority, status
 - Confidence score
-- Verification issues (if any)
-- Actions executed so far
-- Linked ticket + customer context
+- Verification issues
+- Actions executed
+- Ticket & customer context
+
+### Idempotency + Replay Protection
+- Optional `requestId` per request
+- Same `(customerId, requestId)` returns cached response
+- Prevents duplicate tickets, emails, and escalations
+- Enforced via unique DB constraints
 
 ---
 
-### 6) Conversation Memory Safety Net (Step 7.2 ✅)
+## Ops Metrics & Observability
 
-In **LIVE mode**, the agent loads the last **N interactions**:
-
-- Adds context into ticket summaries
-- Applies conservative behavior if the customer recently escalated
-
----
-
-### 7) Idempotency + Replay Protection (Step 7.3 ✅)
-
-`/chat` accepts an optional `requestId`:
-
-- Same `(customerId, requestId)` returns the **previous response**
-- Prevents duplicate tickets, emails, and handoffs
-- Enforced via a **unique database constraint**
-
----
-
-### 8) Human Claiming & Resolution Workflow (Step 7.4 ✅)
-
-Handoffs support real human workflows:
-
-- Atomic claiming (concurrency-safe)
-- Ownership enforcement
-- Resolution notes
-- Optional ticket auto-closure
-
-**Endpoints**
-
-```
-POST /handoffs/:id/claim
-POST /handoffs/:id/resolve
-GET  /handoffs/:id
-```
-
----
-
-### 9) Ops Metrics Dashboard (Step 7.8 ✅)
-
-Production-grade metrics exposed via API and HTML dashboard.
-
-**Tracked metrics**
+Production metrics exposed via API + dashboard:
 
 - Handoff counts (pending / claimed / resolved)
 - Average resolution time
@@ -154,8 +112,7 @@ Production-grade metrics exposed via API and HTML dashboard.
 - Idempotency replay rate
 - Confidence drift (recent vs historical)
 
-**Endpoints**
-
+Endpoints:
 ```
 GET /metrics
 GET /metrics/dashboard
@@ -163,7 +120,7 @@ GET /metrics/dashboard
 
 ---
 
-## Database Models (Prisma + SQLite)
+## Database Models
 
 - Customer
 - Ticket
@@ -171,33 +128,53 @@ GET /metrics/dashboard
 - Handoff (human escalation queue)
 
 Each **live interaction** persists:
-
-- `requestText`, `replyText`
-- `confidence`, `verified`, `escalated`
-- `actionsJson`
-- `requestId` (idempotency)
-- `ticketId` (traceability)
-
----
-
-## Tech Stack
-
-- TypeScript
-- Fastify
-- Prisma 7
-- SQLite
-- Agent-style orchestration
-- Policy-first design
-- Verification-first safety
-- Human-in-the-loop escalation
-- Idempotency / replay protection
-- Operational metrics
+- requestText, replyText
+- confidence, verified, escalated
+- actionsJson
+- requestId
+- ticketId
 
 ---
 
-## Example Live Interaction
+## Getting Started
 
-### Basic request
+### Prerequisites
+- Node.js 18+
+- npm or pnpm
+- SQLite (bundled)
+- Prisma CLI
+
+### Installation
+
+```bash
+git clone https://github.com/your-username/flowops-ai.git
+cd flowops-ai
+npm install
+```
+
+### Setup Database
+
+```bash
+npx prisma generate
+npx prisma migrate dev
+```
+
+### Run the Server
+
+```bash
+npm run dev
+```
+
+Server starts on:
+```
+http://localhost:3000
+```
+
+---
+
+## Example Usage
+
+### Live Request
 
 ```bash
 curl -X POST http://localhost:3000/chat \
@@ -205,11 +182,9 @@ curl -X POST http://localhost:3000/chat \
   -d '{"customerId":"cust_123","message":"refund please","mode":"live"}'
 ```
 
-### Idempotent request (recommended)
+### Idempotent Request (Recommended)
 
 ```bash
-REQ="req_001"
-
 curl -X POST http://localhost:3000/chat \
   -H "Content-Type: application/json" \
   -d '{"customerId":"cust_123","message":"refund","mode":"live","requestId":"req_001"}'
@@ -233,57 +208,42 @@ GET /metrics/dashboard
 
 ---
 
-## Current State (Completed)
+## Current State
 
-- ✔ Full agent loop
-- ✔ Live persistence
-- ✔ Verification layer
-- ✔ Policy-based decisions
-- ✔ Shadow vs live separation
-- ✔ 7.1 Human handoff queue
-- ✔ 7.2 Conversation memory safety net
-- ✔ 7.3 Idempotency + replay protection
-- ✔ 7.4 Handoff claiming + resolution workflow
-- ✔ 7.8 Ops metrics + dashboard
-- ✔ Recruiter-ready architecture
+✔ Full agent loop  
+✔ Policy & verification layers  
+✔ Shadow vs live execution  
+✔ Human handoff workflows  
+✔ Idempotency & replay protection  
+✔ Ops metrics dashboard  
+✔ Recruiter / production-ready architecture  
 
 ---
 
-## Roadmap (Optional Enhancements)
+## Roadmap
 
-### High-Value Production Upgrades
-
-- **7.5** SLA timers + auto-escalation
-- **7.7** Audit export (JSON / CSV / compliance)
-
-### Reliability Patterns
-
-- **7.6** Webhook delivery safety  
-  (outbox + retry + dead-letter queue)
+- SLA timers & auto-escalation
+- Audit export (JSON / CSV)
+- Webhook delivery safety (outbox + retry)
+- Optional React / Next.js admin console
 
 ---
 
-## Frontend (Deferred)
+## Where AI Fits 
 
-Prisma Studio + `/metrics/dashboard` provide sufficient visibility today.  
-A React / Next.js console can be added later if needed.
+AI is **assistive, not authoritative**:
+- Intent extraction
+- Drafting responses
+- Summarizing handoffs
+- Detecting anomalies for escalation
 
----
-
-## Where AI Can Plug In (Future Work)
-
-AI is intentionally **assistive, not authoritative**:
-
-- Intent & entity extraction
-- Human handoff summaries
-- Response drafting (facts enforced by verifier)
-- Anomaly detection → escalation
+All actions remain governed by **policy + verification**.
 
 ---
 
 ## Author
 
 **Martin Enke**  
-_AI / Backend / Agent Systems Engineer_
+_AI / Backend / Agent Engineer_
 
 > “AI agents should be trusted systems — not just clever outputs.”
