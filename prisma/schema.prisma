@@ -31,14 +31,14 @@ model Interaction {
   escalated   Boolean
   verified    Boolean
   actionsJson String
-  requestId   String?   // ✅ MUST exist
-  ticketId    String?   // ✅ MUST exist
+  requestId   String? // ✅ MUST exist
+  ticketId    String? // ✅ MUST exist
   createdAt   DateTime @default(now())
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  @@index([customerId])
   @@unique([customerId, requestId])
+  @@index([customerId])
 }
 
 model Ticket {
@@ -54,7 +54,8 @@ model Ticket {
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  handoffs Handoff[] // ✅ ADD THIS
+  // ✅ 7.1+ relation: one Ticket -> many Handoffs
+  handoffs Handoff[]
 
   @@index([customerId])
 }
@@ -62,7 +63,7 @@ model Ticket {
 model Handoff {
   id          String  @id @default(cuid())
   customerId  String
-  ticketId    String // ✅ make required
+  ticketId    String?
   reason      String
   priority    String  @default("med")
   status      String  @default("pending")
@@ -71,13 +72,22 @@ model Handoff {
   issuesJson  String?
   actionsJson String?
 
+  // ✅ 7.4 workflow fields
+  claimedBy       String?
+  claimedAt       DateTime?
+  resolvedBy      String?
+  resolvedAt      DateTime?
+  resolutionNotes String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  ticket   Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade) // ✅ ADD THIS
+
+  // ✅ THIS is the missing opposite side
+  ticket Ticket? @relation(fields: [ticketId], references: [id], onDelete: SetNull)
 
   @@index([customerId])
   @@index([status])
-  @@index([ticketId]) // ✅ nice to have
+  @@index([ticketId])
 }
