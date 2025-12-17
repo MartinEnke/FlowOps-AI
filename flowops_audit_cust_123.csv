@@ -1,0 +1,47 @@
+kind,id,customerId,ticketId,createdAt,mode,confidence,verified,escalated,requestId,requestText,replyText,actions,status,priority,reason,claimedBy,claimedAt,resolvedBy,resolvedAt,resolutionNotes,issues,type,attempts,idempotencyKey,nextAttemptAt,lastError
+interaction,cmj8wb22u00017nrw9p0i6qng,cust_123,,Tue Dec 16 2025 19:07:47 GMT+0100 (Central European Standard Time),live,0.85,true,false,,I want a refund but my invoice looks wrong and my API key stopped working,"✅ I opened ticket **cmj8wb22p00007nrwjtn6znvm** for you.
+Plan: **pro** · API key: **expired** · Last invoice: **inv_123** (paid)
+
+Refund request: approved for €49. (Refund is within auto-approval limits.)
+
+I’ll continue helping you here — and I sent a follow-up email to **customer@example.com**.","[""ticket_created:cmj8wb22p00007nrwjtn6znvm"",""refund_auto_approved"",""verification_passed"",""email_sent:msg_001""]",,,,,,,,,,,,,,
+interaction,cmj8wdexv0001strwk7vsjm8w,cust_123,,Tue Dec 16 2025 19:09:37 GMT+0100 (Central European Standard Time),live,0.85,true,false,,Just checking my invoice number,"✅ I opened ticket **cmj8wdexp0000strwaq7uc6wf** for you.
+Plan: **pro** · API key: **expired** · Last invoice: **inv_123** (paid)
+
+I’ll continue helping you here — and I sent a follow-up email to **customer@example.com**.","[""ticket_created:cmj8wdexp0000strwaq7uc6wf"",""verification_passed"",""email_sent:msg_001""]",,,,,,,,,,,,,,
+interaction,cmj8wjshd0001dtrwdhbhrwfu,cust_123,,Tue Dec 16 2025 19:14:34 GMT+0100 (Central European Standard Time),live,0.85,true,false,,refund pls,"✅ I opened ticket **cmj8wjsh60000dtrwi0fvdy3b** for you.
+Plan: **pro** · API key: **expired** · Last invoice: **inv_123** (paid)
+
+Refund request: approved for €49. (Refund is within auto-approval limits.)
+
+I’ll continue helping you here — and I sent a follow-up email to **customer@example.com**.","[""ticket_created:cmj8wjsh60000dtrwi0fvdy3b"",""refund_auto_approved"",""verification_passed"",""email_sent:msg_001""]",,,,,,,,,,,,,,
+interaction,cmj8wkufi0004dtrw6zrzpzsu,cust_123,,Tue Dec 16 2025 19:15:24 GMT+0100 (Central European Standard Time),live,0.6,true,true,,refund,"I opened ticket **cmj8wkufb0002dtrwp691aqh2** and pulled your account/billing details.
+
+To be safe, I’m escalating this to a human agent to double-check everything before confirming next steps.","[""ticket_created:cmj8wkufb0002dtrwp691aqh2"",""refund_auto_approved"",""verification_passed"",""escalate_to_human"",""handoff_created:cmj8wkuff0003dtrwjy5uizln"",""email_sent:msg_001""]",,,,,,,,,,,,,,
+interaction,cmj8wlf7d0006dtrwrbjko3a6,cust_123,,Tue Dec 16 2025 19:15:51 GMT+0100 (Central European Standard Time),live,0.85,true,false,,I was charged €999 on invoice inv_999 and need a refund,"✅ I opened ticket **cmj8wlf7a0005dtrwekfrszj2** for you.
+Plan: **pro** · API key: **expired** · Last invoice: **inv_123** (paid)
+
+Refund request: approved for €49. (Refund is within auto-approval limits.)
+
+I’ll continue helping you here — and I sent a follow-up email to **customer@example.com**.","[""ticket_created:cmj8wlf7a0005dtrwekfrszj2"",""refund_auto_approved"",""verification_passed"",""email_sent:msg_001""]",,,,,,,,,,,,,,
+interaction,cmj8xcpe50002z6rwaxhloy44,cust_123,,Tue Dec 16 2025 19:37:04 GMT+0100 (Central European Standard Time),live,0.6,true,true,,refund,"I opened ticket **cmj8xcpdw0000z6rww7uud0x0** and pulled your account/billing details.
+
+To be safe, I’m escalating this to a human agent to double-check everything before confirming next steps.","[""ticket_created:cmj8xcpdw0000z6rww7uud0x0"",""refund_auto_approved"",""verification_passed"",""memory_recent_escalation_escalate"",""escalate_to_human"",""handoff_created:cmj8xcpe10001z6rw63xr5c38"",""email_sent:msg_001""]",,,,,,,,,,,,,,
+interaction,cmj8xczyv0004z6rw06py4vhp,cust_123,,Tue Dec 16 2025 19:37:17 GMT+0100 (Central European Standard Time),live,0.85,true,false,,Can you update me?,"✅ I opened ticket **cmj8xczyo0003z6rwe093opes** for you.
+Plan: **pro** · API key: **expired** · Last invoice: **inv_123** (paid)
+
+I’ll continue helping you here — and I sent a follow-up email to **customer@example.com**.
+
+
+I see this is a follow-up to a recent escalated case — I’ll be extra careful and keep the context.","[""ticket_created:cmj8xczyo0003z6rwe093opes"",""verification_passed"",""email_sent:msg_001""]",,,,,,,,,,,,,,
+interaction,cmj8xkc3q0002dvrwjq4pzng4,cust_123,,Tue Dec 16 2025 19:43:00 GMT+0100 (Central European Standard Time),live,0.6,true,true,,Can you update me?,"I opened ticket **cmj8xkc3f0000dvrw4f3or72o** and pulled your account/billing details.
+
+To be safe, I’m escalating this to a human agent to double-check everything before confirming next steps.","[""ticket_created:cmj8xkc3f0000dvrw4f3or72o"",""verification_passed"",""memory_recent_escalation_escalate"",""escalate_to_human"",""handoff_created:cmj8xkc3l0001dvrwbce28m57"",""email_sent:msg_001""]",,,,,,,,,,,,,,
+interaction,cmj9nsyfo0003urrwe0kfrngp,cust_123,cmj9nsyfe0000urrwbpc7lp3q,Wed Dec 17 2025 07:57:32 GMT+0100 (Central European Standard Time),live,0.6,true,true,req_001,refund please,"I opened ticket **cmj9nsyfe0000urrwbpc7lp3q** and pulled your account/billing details.
+
+To be safe, I’m escalating this to a human agent to double-check everything before confirming next steps.","[""ticket_created:cmj9nsyfe0000urrwbpc7lp3q"",""refund_auto_approved"",""verification_passed"",""memory_recent_escalation_escalate"",""escalate_to_human"",""handoff_created:cmj9nsyfi0001urrw09wi32kd"",""email_sent:queued:cmj9nsyfl0002urrwozt8rm5a""]",,,,,,,,,,,,,,
+handoff,cmj8wkuff0003dtrwjy5uizln,cust_123,cmj8wkufb0002dtrwp691aqh2,Tue Dec 16 2025 19:15:24 GMT+0100 (Central European Standard Time),,0.6,,,,,,"[""ticket_created:cmj8wkufb0002dtrwp691aqh2"",""refund_auto_approved"",""verification_passed"",""escalate_to_human""]",pending,high,low_confidence,,,,,,[],,,,,
+handoff,cmj8xcpe10001z6rw63xr5c38,cust_123,cmj8xcpdw0000z6rww7uud0x0,Tue Dec 16 2025 19:37:04 GMT+0100 (Central European Standard Time),,0.6,,,,,,"[""ticket_created:cmj8xcpdw0000z6rww7uud0x0"",""refund_auto_approved"",""verification_passed"",""memory_recent_escalation_escalate"",""escalate_to_human""]",pending,med,low_confidence,,,,,,[],,,,,
+handoff,cmj8xkc3l0001dvrwbce28m57,cust_123,cmj8xkc3f0000dvrw4f3or72o,Tue Dec 16 2025 19:43:00 GMT+0100 (Central European Standard Time),,0.85,,,,,,"[""ticket_created:cmj8xkc3f0000dvrw4f3or72o"",""verification_passed"",""memory_recent_escalation_escalate"",""escalate_to_human""]",pending,low,recent_escalation,,,,,,[],,,,,
+handoff,cmj9nsyfi0001urrw09wi32kd,cust_123,cmj9nsyfe0000urrwbpc7lp3q,Wed Dec 17 2025 07:57:32 GMT+0100 (Central European Standard Time),,0.6,,,,,,"[""ticket_created:cmj9nsyfe0000urrwbpc7lp3q"",""refund_auto_approved"",""verification_passed"",""memory_recent_escalation_escalate"",""escalate_to_human""]",pending,med,recent_escalation,,,,,,[],,,,,
+outbox,cmj9nsyfl0002urrwozt8rm5a,,,Wed Dec 17 2025 07:57:32 GMT+0100 (Central European Standard Time),,,,,,,,,sent,,,,,,,,,email.send,0,email:cust_123:req_001,Wed Dec 17 2025 07:57:32 GMT+0100 (Central European Standard Time),

@@ -9,6 +9,9 @@ import { runFlowOpsAgent } from "./agent/flowAgent";
 import { ChatRequest } from "./agent/types";
 import { prisma } from "./db/prisma";
 
+import { buildAuditBundle } from "./audit/export";
+import { toCsv, flattenAuditToRows } from "./audit/csv";
+
 dotenv.config();
 
 const server = Fastify({ logger: true });
@@ -516,6 +519,53 @@ server.get(
     );
   }
 );
+
+
+// JSON
+server.get(
+  "/audit/export.json",
+  async (
+    req: FastifyRequest<{ Querystring: { customerId?: string; ticketId?: string } }>
+  ) => {
+    const customerId = req.query.customerId?.trim();
+    const ticketId = req.query.ticketId?.trim();
+
+    const params: { customerId?: string; ticketId?: string } = {};
+    if (customerId) params.customerId = customerId;
+    if (ticketId) params.ticketId = ticketId;
+
+    return buildAuditBundle(params); // ✅ THIS is the fix
+  }
+);
+
+// CSV
+server.get(
+  "/audit/export.csv",
+  async (
+    req: FastifyRequest<{ Querystring: { customerId?: string; ticketId?: string } }>,
+    reply
+  ) => {
+    const customerId = req.query.customerId?.trim();
+const ticketId = req.query.ticketId?.trim();
+
+const params: { customerId?: string; ticketId?: string } = {};
+if (customerId) params.customerId = customerId;
+if (ticketId) params.ticketId = ticketId;
+
+const bundle = await buildAuditBundle(params);
+
+    const rows = flattenAuditToRows(bundle);
+    const csv = toCsv(rows);
+
+    reply.header("content-type", "text/csv; charset=utf-8");
+    reply.header(
+      "content-disposition",
+      `attachment; filename="flowops_audit_${bundle.scope.customerId}.csv"`
+    );
+    return reply.send(csv);
+  }
+);
+
 
 // --------------------
 // Main: chat channel
