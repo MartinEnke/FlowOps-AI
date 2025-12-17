@@ -9,7 +9,7 @@ const POLL_MS = 1000;
 const MAX_ATTEMPTS = 8;
 
 function backoffMs(attempts: number) {
-  // exponential-ish backoff with cap
+  // exponential-ish backoff with cap: 1s, 2s, 4s, 8s, ... up to 60s
   return Math.min(60_000, 1000 * Math.pow(2, Math.max(0, attempts)));
 }
 
@@ -30,8 +30,9 @@ async function deliver(event: { type: string; payloadJson: string }) {
     }
 
     case OUTBOX_EVENT_TYPES.AI_HANDOFF_SUMMARY_GENERATE: {
-      // 🚧 intentionally unimplemented (Step 4)
-      throw new Error("UNHANDLED_EVENT_TYPE:ai.handoff_summary.generate");
+      const payload = JSON.parse(event.payloadJson) as { handoffId: string };
+      await handleAiHandoffSummaryGenerate(payload.handoffId);
+      return;
     }
 
     default:
@@ -42,6 +43,7 @@ async function deliver(event: { type: string; payloadJson: string }) {
 async function claimNextEvent() {
   const now = new Date();
 
+  // Pick one eligible event
   const next = await prisma.outboxEvent.findFirst({
     where: {
       status: { in: ["pending", "failed"] },
@@ -53,6 +55,7 @@ async function claimNextEvent() {
 
   if (!next) return null;
 
+  // Attempt to claim it atomically (best-effort in SQLite)
   const claimed = await prisma.outboxEvent.updateMany({
     where: { id: next.id, status: { in: ["pending", "failed"] } },
     data: { status: "processing" }

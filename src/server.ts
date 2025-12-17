@@ -13,6 +13,8 @@ import { buildAuditBundle } from "./audit/export";
 import { toCsv, flattenAuditToRows } from "./audit/csv";
 import { buildHandoffContextBundle } from "./ai/handoffContext";
 
+import { getHandoffSummaryArtifact } from "./ai/handoffSummaryRepo";
+
 dotenv.config();
 
 const server = Fastify({ logger: true });
@@ -42,6 +44,50 @@ server.get(
     return reply.send(bundle);
   }
 );
+
+server.get(
+  "/debug/ai/artifacts/:handoffId",
+  async (req: FastifyRequest<{ Params: { handoffId: string } }>, reply) => {
+    const { handoffId } = req.params;
+    const rows = await prisma.aiArtifact.findMany({
+      where: { handoffId },
+      orderBy: { createdAt: "desc" }
+    });
+    return reply.send(rows);
+  }
+);
+
+server.get("/handoffs/:id/ai/summary", async (req, reply) => {
+  const { id } = req.params as { id: string };
+
+  const artifact = await getHandoffSummaryArtifact(id);
+
+  if (!artifact) {
+    return reply.code(404).send({ ok: false, error: "No AI summary found for this handoff yet." });
+  }
+
+  // outputJson is a JSON string; return parsed
+  let output: any = null;
+  try {
+    output = JSON.parse(artifact.outputJson);
+  } catch {
+    output = artifact.outputJson;
+  }
+
+  return {
+    ok: true,
+    artifact: {
+      id: artifact.id,
+      handoffId: artifact.handoffId,
+      type: artifact.type,
+      status: artifact.status,
+      createdAt: artifact.createdAt,
+      updatedAt: artifact.updatedAt
+    },
+    output
+  };
+});
+
 
 // --------------------
 // Debug: policy
