@@ -387,14 +387,16 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
     .join("\n");
 
   const emailRes = await sendEmail({
-    to: account.email,
-    subject: emailSubject,
-    body: emailBody,
-    mode
-  });
+  to: account.email,
+  subject: emailSubject,
+  body: emailBody,
+  mode,
+  customerId: input.customerId,
+  requestId
+});
 
-  if (emailRes.ok) actions.push(`email_sent:${emailRes.data.messageId}`);
-  else actions.push(`email_failed:${emailRes.error}`);
+  if (emailRes.ok) actions.push(`email_queued:${emailRes.data.messageId}`);
+else actions.push(`email_failed:${emailRes.error}`);
 
   // 8) Final reply + DB log (LIVE only)
   if (escalationDecision.escalate) {

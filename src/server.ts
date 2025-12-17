@@ -481,6 +481,42 @@ server.get(
   }
 );
 
+
+// --------------------
+// Debug: outbox
+// --------------------
+// GET /debug/outbox
+// GET /debug/outbox?status=pending|processing|failed|dead|sent
+server.get(
+  "/debug/outbox",
+  async (
+    req: FastifyRequest<{ Querystring: { status?: string } }>,
+    reply
+  ) => {
+    const status = req.query?.status?.trim();
+
+    const rows = await prisma.outboxEvent.findMany({
+      ...(status ? { where: { status } } : {}),
+      orderBy: { createdAt: "desc" },
+      take: 50
+    });
+
+    return reply.send(
+      rows.map((e) => ({
+        id: e.id,
+        type: e.type,
+        status: e.status,
+        attempts: e.attempts,
+        nextAttemptAt: e.nextAttemptAt,
+        lastError: e.lastError,
+        idempotencyKey: e.idempotencyKey,
+        createdAt: e.createdAt,
+        updatedAt: e.updatedAt
+      }))
+    );
+  }
+);
+
 // --------------------
 // Main: chat channel
 // --------------------

@@ -91,3 +91,27 @@ model Handoff {
   @@index([status])
   @@index([ticketId])
 }
+
+model OutboxEvent {
+  id             String   @id @default(cuid())
+  type           String
+  payloadJson    String
+
+  // pending -> processing -> sent
+  // pending -> processing -> failed -> pending (retry)
+  // failed -> dead (after max attempts)
+  status         String   @default("pending")
+
+  attempts       Int      @default(0)
+  nextAttemptAt  DateTime @default(now())
+  lastError      String?
+
+  // critical: prevent duplicate deliveries
+  idempotencyKey String   @unique
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([type])
+}
