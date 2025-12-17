@@ -31,8 +31,8 @@ model Interaction {
   escalated   Boolean
   verified    Boolean
   actionsJson String
-  requestId   String? // ✅ MUST exist
-  ticketId    String? // ✅ MUST exist
+  requestId   String?
+  ticketId    String?
   createdAt   DateTime @default(now())
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
@@ -54,27 +54,26 @@ model Ticket {
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  // ✅ 7.1+ relation: one Ticket -> many Handoffs
   handoffs Handoff[]
 
   @@index([customerId])
 }
 
 model Handoff {
-  id          String  @id @default(cuid())
-  customerId  String
-  ticketId    String?
-  reason      String
-  priority    String  @default("med")
-  status      String  @default("pending")
-  mode        String
-  confidence  Float?
-  issuesJson  String?
-  actionsJson String?
+  id            String       @id @default(cuid())
+  customerId    String
+  ticketId      String?
+  reason        String
+  priority      String       @default("med")
+  status        String       @default("pending")
+  mode          String
+  confidence    Float?
+  issuesJson    String?
+  actionsJson   String?
   slaDueAt      DateTime?
   slaBreachedAt DateTime?
+  aiArtifacts   AiArtifact[]
 
-  // ✅ 7.4 workflow fields
   claimedBy       String?
   claimedAt       DateTime?
   resolvedBy      String?
@@ -86,7 +85,6 @@ model Handoff {
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  // ✅ THIS is the missing opposite side
   ticket Ticket? @relation(fields: [ticketId], references: [id], onDelete: SetNull)
 
   @@index([customerId])
@@ -95,25 +93,45 @@ model Handoff {
 }
 
 model OutboxEvent {
-  id             String   @id @default(cuid())
-  type           String
-  payloadJson    String
+  id          String @id @default(cuid())
+  type        String
+  payloadJson String
 
   // pending -> processing -> sent
   // pending -> processing -> failed -> pending (retry)
   // failed -> dead (after max attempts)
-  status         String   @default("pending")
+  status String @default("pending")
 
-  attempts       Int      @default(0)
-  nextAttemptAt  DateTime @default(now())
-  lastError      String?
+  attempts      Int      @default(0)
+  nextAttemptAt DateTime @default(now())
+  lastError     String?
 
   // critical: prevent duplicate deliveries
-  idempotencyKey String   @unique
+  idempotencyKey String @unique
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status, nextAttemptAt])
+  @@index([type])
+}
+
+model AiArtifact {
+  id String @id @default(cuid())
+
+  handoffId String
+  handoff   Handoff @relation(fields: [handoffId], references: [id], onDelete: Cascade)
+
+  type String
+
+  status     String
+  inputJson  String
+  outputJson String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([handoffId, type])
+  @@index([handoffId])
   @@index([type])
 }

@@ -1,5 +1,7 @@
 // src/workers/outboxWorker.ts
 import { prisma } from "../db/prisma";
+import { OUTBOX_EVENT_TYPES } from "../outbox/eventTypes";
+import { handleAiHandoffSummaryGenerate } from "./aiWorker";
 
 type OutboxStatus = "pending" | "processing" | "sent" | "failed" | "dead";
 
@@ -7,32 +9,39 @@ const POLL_MS = 1000;
 const MAX_ATTEMPTS = 8;
 
 function backoffMs(attempts: number) {
-  // exponential-ish backoff with cap: 1s, 2s, 4s, 8s, ... up to 60s
-  const ms = Math.min(60_000, 1000 * Math.pow(2, Math.max(0, attempts)));
-  return ms;
+  // exponential-ish backoff with cap
+  return Math.min(60_000, 1000 * Math.pow(2, Math.max(0, attempts)));
 }
 
 async function deliver(event: { type: string; payloadJson: string }) {
-  // For now: mocked delivery. Later swap with SendGrid/Postmark/SES etc.
-  if (event.type === "notify.sla_breach") {
-  const payload = JSON.parse(event.payloadJson);
-  console.log(`🚨 [OUTBOX] SLA breach notification`, payload);
+  switch (event.type) {
+    case OUTBOX_EVENT_TYPES.SLA_BREACH_NOTIFY: {
+      const payload = JSON.parse(event.payloadJson);
+      console.log("🚨 [OUTBOX] SLA breach notification", payload);
+      return;
+    }
 
-    // Simulate sending
-    console.log(
-      `📧 [OUTBOX] send email to=${payload.to} subject="${payload.subject}" (cust=${payload.customerId} req=${payload.requestId})`
-    );
-    return;
+    case OUTBOX_EVENT_TYPES.EMAIL_SEND: {
+      const payload = JSON.parse(event.payloadJson);
+      console.log(
+        `📧 [OUTBOX] email stub to=${payload.to} subject="${payload.subject}"`
+      );
+      return;
+    }
+
+    case OUTBOX_EVENT_TYPES.AI_HANDOFF_SUMMARY_GENERATE: {
+      // 🚧 intentionally unimplemented (Step 4)
+      throw new Error("UNHANDLED_EVENT_TYPE:ai.handoff_summary.generate");
+    }
+
+    default:
+      throw new Error(`UNHANDLED_EVENT_TYPE:${event.type}`);
   }
-
-  // Unknown event types should not loop forever
-  throw new Error(`Unknown outbox event type: ${event.type}`);
 }
 
 async function claimNextEvent() {
   const now = new Date();
 
-  // Pick one eligible event
   const next = await prisma.outboxEvent.findFirst({
     where: {
       status: { in: ["pending", "failed"] },
@@ -44,7 +53,6 @@ async function claimNextEvent() {
 
   if (!next) return null;
 
-  // Attempt to claim it atomically (best-effort in SQLite)
   const claimed = await prisma.outboxEvent.updateMany({
     where: { id: next.id, status: { in: ["pending", "failed"] } },
     data: { status: "processing" }
@@ -89,7 +97,9 @@ async function runOnce() {
         status: (isDead ? "dead" : "failed") as OutboxStatus,
         attempts,
         lastError: String(err?.message ?? err),
-        nextAttemptAt: isDead ? new Date() : new Date(Date.now() + backoffMs(attempts))
+        nextAttemptAt: isDead
+          ? new Date()
+          : new Date(Date.now() + backoffMs(attempts))
       }
     });
 

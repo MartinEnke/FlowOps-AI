@@ -2,6 +2,8 @@ import { prisma } from "../db/prisma";
 import { ToolResult } from "./types";
 import { Mode } from "../agent/types";
 import { Plan } from "../agent/policy";
+import { OUTBOX_EVENT_TYPES } from "../outbox/eventTypes";
+
 
 /**
  * SLA definition (pending-only: must be claimed before this time)
@@ -27,7 +29,7 @@ export async function createHandoff(input: {
   issues?: string[];
   actions: string[];
 
-  // ✅ NEW: required for SLA computation
+  // ✅ required for SLA computation
   plan: Plan;
 }): Promise<ToolResult<{ handoffId: string; status: "pending" }>> {
   // --------------------
@@ -67,6 +69,37 @@ export async function createHandoff(input: {
           : {})
       }
     });
+
+    try {
+      await prisma.outboxEvent.create({
+        data: {
+          type: OUTBOX_EVENT_TYPES.AI_HANDOFF_SUMMARY_GENERATE,
+          payloadJson: JSON.stringify({
+            handoffId: row.id,
+            version: "handoff_context.v1"
+          }),
+          idempotencyKey: `ai:handoff_summary:${row.id}`
+        }
+      });
+    } catch (e: any) {
+      if (e?.code !== "P2002") throw e; // ignore duplicate idempotency key
+    }
+
+    // 🤖 Enqueue AI handoff summary generation (async, idempotent)
+    await prisma.outboxEvent.upsert({
+  where: {
+    idempotencyKey: `ai:handoff_summary:${row.id}`
+  },
+  update: {},
+  create: {
+    type: OUTBOX_EVENT_TYPES.AI_HANDOFF_SUMMARY_GENERATE,
+    payloadJson: JSON.stringify({
+      handoffId: row.id,
+      version: "handoff_context.v1"
+    }),
+    idempotencyKey: `ai:handoff_summary:${row.id}`
+  }
+});
 
     return {
       ok: true,

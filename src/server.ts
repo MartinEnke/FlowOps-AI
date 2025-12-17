@@ -11,6 +11,7 @@ import { prisma } from "./db/prisma";
 
 import { buildAuditBundle } from "./audit/export";
 import { toCsv, flattenAuditToRows } from "./audit/csv";
+import { buildHandoffContextBundle } from "./ai/handoffContext";
 
 dotenv.config();
 
@@ -31,6 +32,14 @@ server.get(
   "/debug/account/:customerId",
   async (req: FastifyRequest<{ Params: { customerId: string } }>) => {
     return getAccountStatus({ customerId: req.params.customerId });
+  }
+);
+
+server.get(
+  "/debug/ai/handoff-context/:handoffId",
+  async (req: FastifyRequest<{ Params: { handoffId: string } }>, reply) => {
+    const bundle = await buildHandoffContextBundle(req.params.handoffId);
+    return reply.send(bundle);
   }
 );
 
