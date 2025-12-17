@@ -1,6 +1,21 @@
 import { prisma } from "../db/prisma";
 import { ToolResult } from "./types";
 import { Mode } from "../agent/types";
+import { Plan } from "../agent/policy";
+
+/**
+ * SLA definition (pending-only: must be claimed before this time)
+ */
+function slaMinutesForPlan(plan: Plan): number {
+  switch (plan) {
+    case "enterprise":
+      return 15;
+    case "pro":
+      return 60;
+    default:
+      return 240; // free / unknown
+  }
+}
 
 export async function createHandoff(input: {
   customerId: string;
@@ -11,12 +26,25 @@ export async function createHandoff(input: {
   confidence?: number;
   issues?: string[];
   actions: string[];
+
+  // ✅ NEW: required for SLA computation
+  plan: Plan;
 }): Promise<ToolResult<{ handoffId: string; status: "pending" }>> {
+  // --------------------
+  // SHADOW MODE
+  // --------------------
   if (input.mode !== "live") {
-    return { ok: true, data: { handoffId: "shadow_handoff", status: "pending" } };
+    return {
+      ok: true,
+      data: { handoffId: "shadow_handoff", status: "pending" }
+    };
   }
 
   try {
+    const now = new Date();
+    const slaMinutes = slaMinutesForPlan(input.plan);
+    const slaDueAt = new Date(now.getTime() + slaMinutes * 60_000);
+
     const row = await prisma.handoff.create({
       data: {
         reason: input.reason,
@@ -24,19 +52,30 @@ export async function createHandoff(input: {
         status: "pending",
         mode: input.mode,
         confidence: input.confidence ?? null,
+
         issuesJson: input.issues ? JSON.stringify(input.issues) : null,
         actionsJson: JSON.stringify(input.actions),
 
-        // ✅ relation-safe
-        customer: { connect: { id: input.customerId } },
+        // ✅ SLA fields
+        slaDueAt,
+        slaBreachedAt: null,
 
-        // ✅ relation-safe (only if present)
-        ...(input.ticketId ? { ticket: { connect: { id: input.ticketId } } } : {})
+        // ✅ relations (safe + explicit)
+        customer: { connect: { id: input.customerId } },
+        ...(input.ticketId
+          ? { ticket: { connect: { id: input.ticketId } } }
+          : {})
       }
     });
 
-    return { ok: true, data: { handoffId: row.id, status: "pending" } };
+    return {
+      ok: true,
+      data: { handoffId: row.id, status: "pending" }
+    };
   } catch (e: any) {
-    return { ok: false, error: e?.message ?? "handoff create failed" };
+    return {
+      ok: false,
+      error: e?.message ?? "handoff create failed"
+    };
   }
 }

@@ -14,14 +14,9 @@ function backoffMs(attempts: number) {
 
 async function deliver(event: { type: string; payloadJson: string }) {
   // For now: mocked delivery. Later swap with SendGrid/Postmark/SES etc.
-  if (event.type === "email.send") {
-    const payload = JSON.parse(event.payloadJson) as {
-      to: string;
-      subject: string;
-      body: string;
-      customerId?: string;
-      requestId?: string;
-    };
+  if (event.type === "notify.sla_breach") {
+  const payload = JSON.parse(event.payloadJson);
+  console.log(`🚨 [OUTBOX] SLA breach notification`, payload);
 
     // Simulate sending
     console.log(

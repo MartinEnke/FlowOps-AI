@@ -147,7 +147,9 @@ server.get(
       issues: h.issuesJson ? JSON.parse(h.issuesJson) : [],
       actions: h.actionsJson ? JSON.parse(h.actionsJson) : [],
       createdAt: h.createdAt,
-      updatedAt: h.updatedAt
+      updatedAt: h.updatedAt,
+      slaDueAt: h.slaDueAt ?? null,
+slaBreachedAt: h.slaBreachedAt ?? null,
     });
   }
 );
@@ -517,6 +519,18 @@ server.get(
         updatedAt: e.updatedAt
       }))
     );
+  }
+);
+
+server.post(
+  "/debug/handoffs/:id/force-sla-breach",
+  async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+    const past = new Date(Date.now() - 60_000); // 1 min ago
+    const updated = await prisma.handoff.update({
+      where: { id: req.params.id },
+      data: { slaDueAt: past }
+    });
+    return reply.send({ ok: true, id: updated.id, slaDueAt: updated.slaDueAt });
   }
 );
 

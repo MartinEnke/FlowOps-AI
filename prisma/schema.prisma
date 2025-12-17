@@ -71,6 +71,8 @@ model Handoff {
   confidence  Float?
   issuesJson  String?
   actionsJson String?
+  slaDueAt      DateTime?
+  slaBreachedAt DateTime?
 
   // ✅ 7.4 workflow fields
   claimedBy       String?

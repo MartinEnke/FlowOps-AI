@@ -350,15 +350,16 @@ export async function runFlowOpsAgent(input: ChatRequest): Promise<ChatResponse>
             : "low";
 
     const handoffRes = await createHandoff({
-      customerId: input.customerId,
-      ticketId: ticketRes.data.ticketId,
-      reason: handoffReason,
-      priority: handoffPriority,
-      mode,
-      confidence: finalConfidence,
-      ...(verificationPassed ? {} : { issues: verification.issues }),
-      actions
-    });
+  customerId: input.customerId,
+  ticketId: ticketRes.data.ticketId,
+  reason: handoffReason,
+  priority: handoffPriority,
+  mode,
+  confidence: finalConfidence,
+  ...(verificationPassed ? {} : { issues: verification.issues }),
+  actions,
+  plan // ✅ NEW
+});
 
     if (handoffRes.ok) actions.push(`handoff_created:${handoffRes.data.handoffId}`);
     else actions.push(`handoff_failed:${handoffRes.error}`);
