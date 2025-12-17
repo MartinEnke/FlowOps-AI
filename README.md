@@ -7,37 +7,46 @@
 ![Architecture](https://img.shields.io/badge/Architecture-Agentic%20Systems-success)
 ![Status](https://img.shields.io/badge/Status-Production--Grade-brightgreen)
 
-**A Production-Grade Customer Engagement Agent**  
-_TypeScript · Agents · Policy · Verification · Human-in-the-Loop_
+**A Production-Grade Customer Engagement Agent Platform**  
+_TypeScript · Agentic Workflows · Policy · Verification · Human-in-the-Loop · Reliability Engineering_
 
 ---
 
-## Executive Summary (For Recruiters & Reviewers)
+## Executive Summary (For Recruiters, Reviewers & VCs)
 
-**FlowOps AI** is a **production-grade, policy-driven AI agent system** that demonstrates how modern SaaS companies safely deploy autonomous agents **with guardrails, verification, auditability, and human oversight**.
+**FlowOps AI** is a **production-grade agent orchestration platform** that demonstrates how autonomous systems should be built *before* adding large language models.
 
-Unlike prompt-only demos, this system executes **real business workflows** while enforcing deterministic rules, preventing unsafe actions, and escalating to humans when needed.
+Rather than focusing on prompt tricks, this project emphasizes:
 
-> This project is designed to showcase **backend engineering maturity**, **agent orchestration**, and **real-world production patterns**.
+- Deterministic execution
+- Safety guarantees
+- Failure isolation
+- Auditability
+- Human oversight
+- Operational resilience
+
+It mirrors how **real SaaS companies deploy AI-powered workflows in production**, where reliability and trust matter more than novelty.
+
+> AI is treated as an *optional assistant*, not a source of authority.
 
 ---
 
 ## Why This Project Exists
 
-Most “AI agent” demos stop at tool-calling.
+Most "AI agent" demos:
+- Call tools directly
+- Assume success
+- Lack audit trails
+- Cannot safely retry
+- Fail silently or duplicate side-effects
 
-**FlowOps AI goes further:**
+**FlowOps AI exists to demonstrate the opposite.**
 
-- Executes full workflows (account → billing → ticket → email)
-- Applies deterministic **policy engines** (refunds, escalation)
-- Verifies agent outputs before execution (anti-hallucination)
-- Supports **shadow vs live** execution
-- Persists full **audit trails**
-- Escalates to humans based on confidence & verification
-- Prevents duplicate side-effects via **idempotency**
-- Exposes **ops metrics** for observability
-
-This mirrors how AI agents are deployed in **real production environments**.
+This system executes **real customer-support workflows** while guaranteeing:
+- No duplicate side-effects
+- Deterministic decisions
+- Full observability
+- Safe escalation paths
 
 ---
 
@@ -48,69 +57,194 @@ Client
   ↓
 Fastify API (/chat)
   ↓
-FlowOps Agent (runFlowOpsAgent)
-  ├─ Account Tool
-  ├─ Billing Tool
-  ├─ Ticket Tool
-  ├─ Email Tool
-  ├─ Policy Engine
-  ├─ Verification Layer
-  ├─ Memory Safety Net
+FlowOps Agent Orchestrator
+  ├─ Policy Engine (deterministic)
+  ├─ Verification Layer (anti-hallucination)
+  ├─ Tool Layer (account, billing, ticket, email)
   ├─ Idempotency Guard
-  └─ Human Handoff Queue
+  ├─ Memory Safety Net
+  ├─ Human Handoff Queue
+  └─ Outbox Dispatcher
   ↓
 SQLite (Prisma 7)
+  ├─ Customers
+  ├─ Tickets
+  ├─ Interactions (audit log)
+  ├─ Handoffs (human-in-the-loop)
+  └─ Outbox Events (retries & dead-letter)
 ```
 
 ---
 
 ## Core Production Concepts
 
-### Shadow vs Live Mode
-- **Shadow**: Executes logic without persistence (safe demos & testing)
-- **Live**: Persists customers, tickets, interactions, and handoffs
+### Shadow vs Live Execution
 
-### Policy Engine
-Deterministic rules decide:
+- **Shadow mode**
+  - Executes full logic
+  - No persistence
+  - Safe for demos and testing
+
+- **Live mode**
+  - Persists all side-effects
+  - Enforces idempotency
+  - Triggers background workers
+
+---
+
+### Policy Engine (Deterministic)
+
+Policies are **code**, not prompts.
+
+They decide:
 - Refund eligibility
-- Auto-approval vs human review
-- Escalation thresholds
+- Auto-approval thresholds
+- Escalation requirements
+- Priority assignment
 
-### Verification Layer
-Every agent reply is validated against:
-- Tool outputs (account + billing)
+This guarantees predictable behavior regardless of AI output.
+
+---
+
+### Verification Layer (Anti-Hallucination)
+
+Before any side-effect is executed, the agent reply is verified against:
+
+- Account data
+- Billing state
 - Refund limits
-- Claimed actions  
-Unsafe replies are **blocked and escalated**.
+- Tool outputs
 
-### Confidence-Driven Escalation
-Low confidence or verification failure triggers **human handoff**.
+Unsafe or inconsistent replies are **blocked automatically** and escalated.
 
-### Human Handoff Queue
-Escalations create structured handoff records including:
-- Reason, priority, status
+---
+
+### Confidence-Driven Human Escalation
+
+Each interaction produces a confidence score.
+
+Escalation occurs when:
+- Confidence drops below threshold
+- Verification fails
+- Recent escalation history exists
+
+Escalations create structured **handoff records** for human operators.
+
+---
+
+## Human Handoff System
+
+Each handoff includes:
+
+- Customer + ticket context
+- Reason and priority
 - Confidence score
+- Actions already taken
 - Verification issues
-- Actions executed
-- Ticket & customer context
+- SLA timers
 
-### Idempotency + Replay Protection
-- Optional `requestId` per request
-- Same `(customerId, requestId)` returns cached response
-- Prevents duplicate tickets, emails, and escalations
-- Enforced via unique DB constraints
+Humans can:
+- Claim
+- Resolve
+- Annotate
+- Audit decisions
+
+---
+
+## Reliability Engineering (Recent Work)
+
+### Outbox Pattern (Async Side-Effects)
+
+All external side-effects (email, notifications) are written to an **outbox table** and processed asynchronously.
+
+This guarantees:
+- No duplicate deliveries
+- Retry with backoff
+- Dead-letter isolation
+- Safe crash recovery
+
+**Email delivery is currently stubbed.**
+The outbox still demonstrates **retry and dead-letter behavior** accurately.
+
+> Internal error type may optionally be renamed to `UNHANDLED_EVENT_TYPE` for clarity.
+
+---
+
+### Background Workers
+
+- **Outbox Worker**
+  - Processes pending events
+  - Retries failures
+  - Marks dead-letter events
+
+- **SLA Worker**
+  - Tracks handoff SLA deadlines
+  - Auto-breaches overdue handoffs
+  - Emits escalation notifications via outbox
+
+---
+
+### SLA Timers & Auto-Escalation
+
+Each handoff may include:
+- `slaDueAt`
+- `slaBreachedAt`
+
+When breached:
+- Status is updated
+- Notification event is emitted
+- Full audit trail preserved
+
+---
+
+### Idempotency & Replay Protection
+
+Each request may include an optional `requestId`.
+
+Guarantees:
+- Same `(customerId, requestId)` → same response
+- No duplicate tickets
+- No duplicate emails
+- No duplicate escalations
+
+Enforced via:
+- Unique DB constraints
+- Interaction replay logic
+
+---
+
+## Audit & Compliance
+
+### Full Audit Export
+
+Audit bundles can be exported as:
+
+- JSON
+- CSV
+
+Including:
+- Customer
+- Tickets
+- Interactions
+- Handoffs
+- Outbox events
+
+This supports:
+- Compliance
+- Debugging
+- Incident reviews
 
 ---
 
 ## Ops Metrics & Observability
 
-Production metrics exposed via API + dashboard:
+Exposed metrics include:
 
-- Handoff counts (pending / claimed / resolved)
-- Average resolution time
 - Escalation rate
+- SLA breach count
 - Idempotency replay rate
-- Confidence drift (recent vs historical)
+- Handoff backlog
+- Resolution times
 
 Endpoints:
 ```
@@ -124,15 +258,11 @@ GET /metrics/dashboard
 
 - Customer
 - Ticket
-- Interaction (audit trail + idempotency)
-- Handoff (human escalation queue)
+- Interaction (immutable audit log)
+- Handoff (workflow state)
+- OutboxEvent (reliability layer)
 
-Each **live interaction** persists:
-- requestText, replyText
-- confidence, verified, escalated
-- actionsJson
-- requestId
-- ticketId
+All writes are explicit, traceable, and replay-safe.
 
 ---
 
@@ -140,7 +270,7 @@ Each **live interaction** persists:
 
 ### Prerequisites
 - Node.js 18+
-- npm or pnpm
+- npm
 - SQLite (bundled)
 - Prisma CLI
 
@@ -152,22 +282,19 @@ cd flowops-ai
 npm install
 ```
 
-### Setup Database
+### Database Setup
 
 ```bash
 npx prisma generate
 npx prisma migrate dev
 ```
 
-### Run the Server
+### Run Services
 
 ```bash
 npm run dev
-```
-
-Server starts on:
-```
-http://localhost:3000
+npm run dev:outbox-worker
+npm run dev:sla-worker
 ```
 
 ---
@@ -182,7 +309,7 @@ curl -X POST http://localhost:3000/chat \
   -d '{"customerId":"cust_123","message":"refund please","mode":"live"}'
 ```
 
-### Idempotent Request (Recommended)
+### Idempotent Request
 
 ```bash
 curl -X POST http://localhost:3000/chat \
@@ -190,60 +317,63 @@ curl -X POST http://localhost:3000/chat \
   -d '{"customerId":"cust_123","message":"refund","mode":"live","requestId":"req_001"}'
 ```
 
-Retrying with the same `requestId` returns the same response and avoids duplicates.
-
 ---
 
-## Debug & Inspection Endpoints
+## Debug & Inspection
 
 ```
-GET /debug/handoffs
+GET /debug/outbox
 GET /handoffs/:id
-GET /debug/interactions/:customerId
-GET /debug/account/:customerId
-GET /debug/policy/refund/:plan/:amount
-GET /metrics
-GET /metrics/dashboard
+GET /audit/export.json
+GET /audit/export.csv
 ```
 
 ---
 
 ## Current State
 
-✔ Full agent loop  
-✔ Policy & verification layers  
-✔ Shadow vs live execution  
-✔ Human handoff workflows  
-✔ Idempotency & replay protection  
-✔ Ops metrics dashboard  
-✔ Recruiter / production-ready architecture  
+✔ Agent orchestration  
+✔ Policy enforcement  
+✔ Verification layer  
+✔ Human-in-the-loop  
+✔ Outbox & retries  
+✔ SLA enforcement  
+✔ Audit export  
+✔ Ops metrics  
+
+This is a **platform**, not a demo.
 
 ---
 
 ## Roadmap
 
-- SLA timers & auto-escalation
-- Audit export (JSON / CSV)
-- Webhook delivery safety (outbox + retry)
-- Optional React / Next.js admin console
+- Webhook delivery safety (external integrations)
+- Admin UI (React / Next.js)
+- AI-assisted drafting & summarization
+- Anomaly detection for escalation hints
 
 ---
 
-## Where AI Fits 
+## Where AI Fits (Intentionally Limited)
 
-AI is **assistive, not authoritative**:
+AI may assist with:
 - Intent extraction
 - Drafting responses
 - Summarizing handoffs
-- Detecting anomalies for escalation
+- Pattern detection
 
-All actions remain governed by **policy + verification**.
+AI will **never**:
+- Execute side-effects
+- Override policy
+- Approve financial actions
+
+Trust remains deterministic.
 
 ---
 
 ## Author
 
 **Martin Enke**  
-_AI / Backend / Agent Engineer_
+Backend / Platform / Agent Engineer
 
-> “AI agents should be trusted systems — not just clever outputs.”
+> “AI agents should be trustworthy systems — not just clever outputs.”
