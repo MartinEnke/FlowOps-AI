@@ -2,16 +2,23 @@
 import "dotenv/config";
 import { prisma } from "../db/prisma";
 import { OUTBOX_EVENT_TYPES } from "../outbox/eventTypes";
-import { handleAiHandoffSummaryGenerate } from "./aiWorker";
-import { handleAiReplyDraftGenerate } from "./replyDraftWorker";
 
+import {
+  handleAiHandoffSummaryGenerate,
+  handleAiReplyDraftGenerate,
+  handleAiRiskAssessmentGenerate
+} from "./aiWorker";
 
+// ----------------------------------
+// Startup diagnostics (intentional)
+// ----------------------------------
 console.log("🔑 OPENAI key loaded?", {
   hasKey: Boolean(process.env.OPENAI_API_KEY),
   prefix: process.env.OPENAI_API_KEY?.slice(0, 10) ?? null,
   model: process.env.OPENAI_MODEL ?? null
 });
 
+// ----------------------------------
 
 type OutboxStatus = "pending" | "processing" | "sent" | "failed" | "dead";
 
@@ -19,12 +26,16 @@ const POLL_MS = 1000;
 const MAX_ATTEMPTS = 8;
 
 function backoffMs(attempts: number) {
-  // exponential-ish backoff with cap: 1s, 2s, 4s, 8s, ... up to 60s
+  // exponential-ish backoff with cap
   return Math.min(60_000, 1000 * Math.pow(2, Math.max(0, attempts)));
 }
 
+// ----------------------------------
+// Deliver one outbox event
+// ----------------------------------
 async function deliver(event: { type: string; payloadJson: string }) {
   switch (event.type) {
+    // -------- Ops / notifications --------
     case OUTBOX_EVENT_TYPES.SLA_BREACH_NOTIFY: {
       const payload = JSON.parse(event.payloadJson);
       console.log("🚨 [OUTBOX] SLA breach notification", payload);
@@ -39,6 +50,7 @@ async function deliver(event: { type: string; payloadJson: string }) {
       return;
     }
 
+    // -------- AI workers --------
     case OUTBOX_EVENT_TYPES.AI_HANDOFF_SUMMARY_GENERATE: {
       const payload = JSON.parse(event.payloadJson) as { handoffId: string };
       await handleAiHandoffSummaryGenerate(payload.handoffId);
@@ -46,20 +58,29 @@ async function deliver(event: { type: string; payloadJson: string }) {
     }
 
     case OUTBOX_EVENT_TYPES.AI_REPLY_DRAFT_GENERATE: {
-  const payload = JSON.parse(event.payloadJson) as { handoffId: string };
-  await handleAiReplyDraftGenerate(payload.handoffId);
-  return;
-}
+      const payload = JSON.parse(event.payloadJson) as { handoffId: string };
+      await handleAiReplyDraftGenerate(payload.handoffId);
+      return;
+    }
 
+    case OUTBOX_EVENT_TYPES.AI_RISK_ASSESSMENT_GENERATE: {
+      const payload = JSON.parse(event.payloadJson) as { handoffId: string };
+      await handleAiRiskAssessmentGenerate(payload.handoffId);
+      return;
+    }
+
+    // -------- Guardrail --------
     default:
       throw new Error(`UNHANDLED_EVENT_TYPE:${event.type}`);
   }
 }
 
+// ----------------------------------
+// Claim one event atomically
+// ----------------------------------
 async function claimNextEvent() {
   const now = new Date();
 
-  // Pick one eligible event
   const next = await prisma.outboxEvent.findFirst({
     where: {
       status: { in: ["pending", "failed"] },
@@ -71,7 +92,6 @@ async function claimNextEvent() {
 
   if (!next) return null;
 
-  // Attempt to claim it atomically (best-effort in SQLite)
   const claimed = await prisma.outboxEvent.updateMany({
     where: { id: next.id, status: { in: ["pending", "failed"] } },
     data: { status: "processing" }
@@ -90,6 +110,9 @@ async function claimNextEvent() {
   });
 }
 
+// ----------------------------------
+// Main loop iteration
+// ----------------------------------
 async function runOnce() {
   const ev = await claimNextEvent();
   if (!ev) return;
@@ -130,6 +153,9 @@ async function runOnce() {
   }
 }
 
+// ----------------------------------
+// Worker entrypoint
+// ----------------------------------
 async function main() {
   console.log("🔁 Outbox worker started");
 

@@ -125,6 +125,37 @@ server.post(
   }
 );
 
+// POST /handoffs/:id/ai/risk
+server.post(
+  "/handoffs/:id/ai/risk",
+  async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+    const { id } = req.params;
+
+    const h = await prisma.handoff.findUnique({ where: { id } });
+    if (!h) return reply.code(404).send({ ok: false, error: "Handoff not found" });
+
+    const idempotencyKey = `ai:risk:${id}`;
+
+    await prisma.outboxEvent.upsert({
+      where: { idempotencyKey },
+      update: {},
+      create: {
+        type: OUTBOX_EVENT_TYPES.AI_RISK_ASSESSMENT_GENERATE,
+        payloadJson: JSON.stringify({ handoffId: id, version: "handoff_context.v1" }),
+        idempotencyKey
+      }
+    });
+
+    return reply.send({
+      ok: true,
+      queued: true,
+      handoffId: id,
+      eventType: OUTBOX_EVENT_TYPES.AI_RISK_ASSESSMENT_GENERATE,
+      idempotencyKey
+    });
+  }
+);
+
 
 // --------------------
 // Debug: policy

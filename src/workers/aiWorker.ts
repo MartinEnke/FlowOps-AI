@@ -2,8 +2,55 @@
 import { prisma } from "../db/prisma";
 import { buildHandoffContextBundle } from "../ai/handoffContext";
 import { generateStructuredJson } from "../ai/openaiClient";
-import { HANDOFF_SUMMARY_SCHEMA, buildHandoffSummaryPrompt } from "../ai/prompts/handoffSummary";
 
+// ---- Prompts & Schemas ----
+import {
+  HANDOFF_SUMMARY_SCHEMA,
+  buildHandoffSummaryPrompt
+} from "../ai/prompts/handoffSummary";
+
+import {
+  REPLY_DRAFT_SCHEMA,
+  buildReplyDraftPrompt
+} from "../ai/prompts/replyDraft";
+
+import {
+  RISK_ASSESSMENT_SCHEMA,
+  buildRiskAssessmentPrompt
+} from "../ai/prompts/riskAssessment";
+
+// -----------------------------
+// Shared helper (keeps things DRY)
+// -----------------------------
+async function persistArtifact(params: {
+  handoffId: string;
+  type: string;
+  status: "ok" | "failed";
+  input: any;
+  output: any;
+}) {
+  const { handoffId, type, status, input, output } = params;
+
+  await prisma.aiArtifact.upsert({
+    where: { handoffId_type: { handoffId, type } },
+    update: {
+      status,
+      inputJson: JSON.stringify(input),
+      outputJson: JSON.stringify(output)
+    },
+    create: {
+      handoffId,
+      type,
+      status,
+      inputJson: JSON.stringify(input),
+      outputJson: JSON.stringify(output)
+    }
+  });
+}
+
+// -----------------------------
+// 1) HANDOFF SUMMARY
+// -----------------------------
 export async function handleAiHandoffSummaryGenerate(handoffId: string) {
   const bundle = await buildHandoffContextBundle(handoffId);
 
@@ -19,60 +66,140 @@ export async function handleAiHandoffSummaryGenerate(handoffId: string) {
       timeoutMs: 20_000
     });
 
-    // Ensure required invariant fields (belt & suspenders)
-    const summary = {
+    const artifact = {
       ...llmJson,
       version: "handoff_summary.v1" as const,
       handoffId,
       generatedAt: new Date().toISOString()
     };
 
-    await prisma.aiArtifact.upsert({
-      where: { handoffId_type: { handoffId, type: "handoff_summary.v1" } },
-      update: {
-        status: "ok",
-        inputJson: JSON.stringify(bundle),
-        outputJson: JSON.stringify(summary)
-      },
-      create: {
-        handoffId,
-        type: "handoff_summary.v1",
-        status: "ok",
-        inputJson: JSON.stringify(bundle),
-        outputJson: JSON.stringify(summary)
-      }
+    await persistArtifact({
+      handoffId,
+      type: "handoff_summary.v1",
+      status: "ok",
+      input: bundle,
+      output: artifact
     });
 
     console.log(`🤖 [AI] wrote handoff_summary.v1 for handoffId=${handoffId}`);
   } catch (err: any) {
-    // Persist failure as an artifact too (so operators can audit + you can debug)
-    await prisma.aiArtifact.upsert({
-      where: { handoffId_type: { handoffId, type: "handoff_summary.v1" } },
-      update: {
-        status: "failed",
-        inputJson: JSON.stringify(bundle),
-        outputJson: JSON.stringify({
-          version: "handoff_summary.v1",
-          generatedAt: new Date().toISOString(),
-          handoffId,
-          error: String(err?.message ?? err)
-        })
-      },
-      create: {
+    await persistArtifact({
+      handoffId,
+      type: "handoff_summary.v1",
+      status: "failed",
+      input: bundle,
+      output: {
+        version: "handoff_summary.v1",
+        generatedAt: new Date().toISOString(),
         handoffId,
-        type: "handoff_summary.v1",
-        status: "failed",
-        inputJson: JSON.stringify(bundle),
-        outputJson: JSON.stringify({
-          version: "handoff_summary.v1",
-          generatedAt: new Date().toISOString(),
-          handoffId,
-          error: String(err?.message ?? err)
-        })
+        error: String(err?.message ?? err)
       }
     });
 
-    // Throw so outbox retries still work
+    throw err;
+  }
+}
+
+// -----------------------------
+// 2) REPLY DRAFT (HUMAN APPROVAL)
+// -----------------------------
+export async function handleAiReplyDraftGenerate(handoffId: string) {
+  const bundle = await buildHandoffContextBundle(handoffId);
+
+  try {
+    const { system, user } = buildReplyDraftPrompt(bundle);
+
+    const llmJson = await generateStructuredJson({
+      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      system,
+      user,
+      schemaName: "reply_draft_v1",
+      schema: REPLY_DRAFT_SCHEMA,
+      timeoutMs: 20_000
+    });
+
+    const artifact = {
+      ...llmJson,
+      version: "reply_draft.v1" as const,
+      handoffId,
+      generatedAt: new Date().toISOString()
+    };
+
+    await persistArtifact({
+      handoffId,
+      type: "reply_draft.v1",
+      status: "ok",
+      input: bundle,
+      output: artifact
+    });
+
+    console.log(`✍️ [AI] wrote reply_draft.v1 for handoffId=${handoffId}`);
+  } catch (err: any) {
+    await persistArtifact({
+      handoffId,
+      type: "reply_draft.v1",
+      status: "failed",
+      input: bundle,
+      output: {
+        version: "reply_draft.v1",
+        generatedAt: new Date().toISOString(),
+        handoffId,
+        error: String(err?.message ?? err)
+      }
+    });
+
+    throw err;
+  }
+}
+
+// -----------------------------
+// 3) RISK ASSESSMENT (NON-AUTHORITATIVE)
+// -----------------------------
+export async function handleAiRiskAssessmentGenerate(handoffId: string) {
+  const bundle = await buildHandoffContextBundle(handoffId);
+
+  try {
+    const { system, user } = buildRiskAssessmentPrompt(bundle);
+
+    const llmJson = await generateStructuredJson({
+      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      system,
+      user,
+      schemaName: "risk_assessment_v1",
+      schema: RISK_ASSESSMENT_SCHEMA,
+      timeoutMs: 20_000
+    });
+
+    const artifact = {
+      ...llmJson,
+      version: "risk_assessment.v1" as const,
+      handoffId,
+      generatedAt: new Date().toISOString()
+    };
+
+    await persistArtifact({
+      handoffId,
+      type: "risk_assessment.v1",
+      status: "ok",
+      input: bundle,
+      output: artifact
+    });
+
+    console.log(`⚠️ [AI] wrote risk_assessment.v1 for handoffId=${handoffId}`);
+  } catch (err: any) {
+    await persistArtifact({
+      handoffId,
+      type: "risk_assessment.v1",
+      status: "failed",
+      input: bundle,
+      output: {
+        version: "risk_assessment.v1",
+        generatedAt: new Date().toISOString(),
+        handoffId,
+        error: String(err?.message ?? err)
+      }
+    });
+
     throw err;
   }
 }
