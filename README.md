@@ -253,11 +253,43 @@ This establishes a true **human-in-the-loop** workflow.
 
 ---
 
+### AI Risk Assessment (v1 — Non-Authoritative)
+
+Operators may explicitly request an AI-assisted **risk assessment** for a handoff.
+
+Trigger:
+```
+POST /handoffs/:id/ai/risk
+```
+
+This enqueues the async event:
+```
+ai.risk_assessment.generate
+```
+
+The AI worker:
+1. Evaluates the full handoff context (SLA state, escalation history, confidence, policy outcome)
+2. Produces a **non-authoritative risk signal** for human operators
+3. Persists output as a versioned artifact (`risk_assessment.v1`)
+
+The risk assessment includes:
+- Overall risk level (`low`, `medium`, `high`)
+- Plain-language reasons explaining the assessment
+- Attention flags (e.g. SLA pressure, repeat escalation, missing information)
+
+Key guarantees:
+- Risk scores **never block or trigger actions**
+- They do **not override policy**
+- They exist solely to **guide human attention and prioritization**
+
+---
+
 ## Where AI Fits (Intentionally Limited)
 
 AI may assist with:
 - Handoff summarization
 - Drafting suggested replies
+- Risk assessment & prioritization
 - Pattern detection & signal amplification
 - Operator decision support
 
@@ -275,7 +307,7 @@ All authority remains deterministic.
 
 1. ✅ LLM-backed handoff summaries (complete)
 2. ✅ AI-assisted reply drafting (human approval required)
-3. AI risk scoring & prioritization (never authoritative)
+3. ✅ AI risk assessment & prioritization (non-authoritative)
 4. Operator admin UI (React / Next.js)
 
 ---
@@ -288,6 +320,7 @@ Metrics tracked:
 - Idempotency replays
 - Handoff backlog size
 - Resolution time distribution
+- Risk-level distribution over time
 
 Endpoints:
 ```
@@ -341,6 +374,7 @@ npm run dev:sla-worker
 ✔ Outbox pattern with retries  
 ✔ SLA enforcement  
 ✔ Versioned AI artifacts  
+✔ AI risk assessment (non-authoritative)  
 ✔ Audit export  
 ✔ Ops metrics  
 
