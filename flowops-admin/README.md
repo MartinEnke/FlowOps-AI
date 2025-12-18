@@ -1,36 +1,182 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# FlowOps Admin Console
 
-## Getting Started
+The **FlowOps Admin Console** is the internal operator interface for **FlowOps AI**.
 
-First, run the development server:
+It provides a human-in-the-loop UI for inspecting handoffs, reviewing AI-generated artifacts, and performing controlled operational actions.  
+The console is intentionally designed as a **decision-support tool**, not an autonomous system.
 
+---
+
+## Purpose
+
+The admin UI exists to give operators:
+- Full visibility into active and historical handoffs
+- Transparent access to AI-generated artifacts
+- Explicit control over escalation, claiming, and resolution
+- A safe interface to *request* AI assistance without delegating authority
+
+AI outputs are **review-only by default**.
+
+---
+
+## Current Capabilities
+
+### Handoff Overview
+- List all active handoffs
+- View status, priority, reason, and SLA state
+- Navigate into individual handoff detail pages
+
+### Handoff Detail View
+For each handoff, operators can inspect:
+
+- **Core handoff metadata**
+  - Status, priority, reason
+  - SLA due / breached state
+
+- **AI Artifacts (read-only)**
+  - `handoff_summary.v1`
+  - `reply_draft.v1`
+  - `risk_assessment.v1`
+
+Artifacts are:
+- Versioned
+- Timestamped
+- Fully auditable
+- Never auto-applied
+
+### Explicit AI Triggers
+Operators may manually request AI assistance:
+
+| Action | Description |
+|------|------------|
+| Generate Draft | Produces a customer-facing reply suggestion |
+| Generate Risk | Produces a non-authoritative risk assessment |
+| Claim | Claims the handoff for manual handling |
+| Resolve | Resolves the handoff |
+
+All AI triggers enqueue async outbox events handled by the backend.
+
+---
+
+## Design Principles
+
+- **Human authority first**  
+  AI suggests — humans decide.
+
+- **No hidden automation**  
+  Every AI action is explicitly triggered and visible.
+
+- **Strict separation of concerns**  
+  UI does not execute business logic or policy.
+
+- **Failure-safe by design**  
+  If AI fails, the system continues normally.
+
+---
+
+## Tech Stack
+
+- **Next.js (App Router)**
+- **TypeScript**
+- **Tailwind CSS**
+- Server Components + Server Actions
+- Backend communication via REST endpoints
+
+---
+
+## Running the Admin Console
+
+### Prerequisites
+- Node.js 18+
+- FlowOps AI backend running locally
+
+### Install
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Environment
+Create `.env.local`:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```env
+NEXT_PUBLIC_API_BASE=http://localhost:3000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Run
+```bash
+npm run dev
+```
 
-## Learn More
+The UI will be available at:
+```
+http://localhost:3001
+```
 
-To learn more about Next.js, take a look at the following resources:
+> Tip: Keep backend and admin UI on separate ports to avoid conflicts.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Folder Structure (Simplified)
 
-## Deploy on Vercel
+```
+src/
+  app/
+    page.tsx                → Redirects to /handoffs
+    handoffs/
+      page.tsx              → Handoff list
+      [id]/
+        page.tsx            → Handoff detail view
+  lib/
+    api.ts                  → Typed backend API helpers
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## What’s Next
+
+Planned improvements (in order):
+
+1. **UI state refinements**
+   - Better loading & empty states
+   - Improved contrast and readability
+   - Long-text wrapping & truncation controls
+
+2. **Operator ergonomics**
+   - Inline artifact diffing
+   - Copy-to-clipboard helpers
+   - Collapsible artifact sections
+
+3. **Risk-aware sorting & filters**
+   - Sort handoffs by risk level
+   - SLA pressure highlighting
+   - Attention queues for operators
+
+4. **Authentication & roles**
+   - Operator login
+   - Read-only vs. action-capable roles
+
+5. **Production hardening**
+   - Error boundaries
+   - Audit banners
+   - Environment-safe configs
+
+---
+
+## Philosophy
+
+This UI is **not** a chatbot frontend.  
+It is an **operational console** for humans supervising AI-assisted workflows.
+
+> Trust is built through visibility, not automation.
+
+---
+
+## Author
+
+**Martin Enke**
+
+FlowOps AI is an exploration of how AI systems can be:
+- transparent
+- constrained
+- auditable
+- and genuinely useful in real operations
