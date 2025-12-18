@@ -202,6 +202,10 @@ Enforced via:
 FlowOps AI integrates large language models **as asynchronous, assistive subsystems** — never as authoritative decision-makers.  
 All AI execution is isolated behind the outbox pattern and produces **versioned, auditable artifacts**.
 
+AI is treated as **infrastructure**, not intelligence: every output is optional, reviewable, and bounded by deterministic policy.
+
+---
+
 ### AI Handoff Summary (v1)
 
 When a handoff is created, an async outbox event  
@@ -219,7 +223,7 @@ The summary includes:
 - Identified risks (e.g. SLA proximity)
 - Recommended human next step
 
-AI output is **always optional, reviewable, and non-blocking**.
+This artifact exists to **accelerate human understanding**, not to make decisions.
 
 ---
 
@@ -240,7 +244,7 @@ ai.reply_draft.generate
 The AI worker:
 1. Reuses the same strict handoff context bundle
 2. Drafts a **customer-facing reply suggestion**
-3. Enforces schema validation and tone constraints
+3. Enforces schema validation, tone constraints, and factual grounding
 4. Persists output as a versioned artifact (`reply_draft.v1`)
 
 Key properties:
@@ -249,7 +253,7 @@ Key properties:
 - Uncertainty must be expressed explicitly (“I will confirm…”)
 - Human approval is always required before sending
 
-This establishes a true **human-in-the-loop** workflow.
+This establishes a true **human-in-the-loop communication workflow**.
 
 ---
 
@@ -274,7 +278,7 @@ The AI worker:
 
 The risk assessment includes:
 - Overall risk level (`low`, `medium`, `high`)
-- Plain-language reasons explaining the assessment
+- Plain-language reasoning for the assessment
 - Attention flags (e.g. SLA pressure, repeat escalation, missing information)
 
 Key guarantees:
@@ -308,7 +312,11 @@ All authority remains deterministic.
 1. ✅ LLM-backed handoff summaries (complete)
 2. ✅ AI-assisted reply drafting (human approval required)
 3. ✅ AI risk assessment & prioritization (non-authoritative)
-4. Operator admin UI (React / Next.js)
+4. Operator admin UI (React / Next.js) — **in progress**
+5. Risk-aware UI prioritization (badges, sorting, filtering)
+6. AI-assisted resolution suggestions (still human-approved)
+7. Historical risk & outcome analytics
+8. Permissioned role-based operator actions
 
 ---
 
@@ -375,6 +383,7 @@ npm run dev:sla-worker
 ✔ SLA enforcement  
 ✔ Versioned AI artifacts  
 ✔ AI risk assessment (non-authoritative)  
+✔ Operator admin UI  
 ✔ Audit export  
 ✔ Ops metrics  
 
