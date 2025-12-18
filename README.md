@@ -199,61 +199,103 @@ Enforced via:
 
 ## AI Integration (Current State)
 
+FlowOps AI integrates large language models **as asynchronous, assistive subsystems** — never as authoritative decision-makers.  
+All AI execution is isolated behind the outbox pattern and produces **versioned, auditable artifacts**.
+
 ### AI Handoff Summary (v1)
 
-When a handoff is created, an async event  
+When a handoff is created, an async outbox event  
 `ai.handoff_summary.generate` is enqueued.
 
 The AI worker:
-1. Builds a strict context bundle
-2. Generates a deterministic summary
-3. Persists it as a versioned AI artifact
-4. Never blocks the core workflow
+1. Builds a **strict, authoritative context bundle** from the database
+2. Generates a structured summary using an LLM (JSON schema enforced)
+3. Persists the result as a **versioned AI artifact** (`handoff_summary.v1`)
+4. Executes fully async — **never blocking** the core workflow
 
-AI output is **always optional and reviewable**.
+The summary includes:
+- High-level situation overview
+- Key factual data points
+- Identified risks (e.g. SLA proximity)
+- Recommended human next step
+
+AI output is **always optional, reviewable, and non-blocking**.
+
+---
+
+### AI Reply Drafting (v1 — Human Approval Required)
+
+Operators may explicitly request an AI-generated **reply draft** for an active handoff.
+
+Trigger:
+```
+POST /handoffs/:id/ai/draft
+```
+
+This enqueues the async event:
+```
+ai.reply_draft.generate
+```
+
+The AI worker:
+1. Reuses the same strict handoff context bundle
+2. Drafts a **customer-facing reply suggestion**
+3. Enforces schema validation and tone constraints
+4. Persists output as a versioned artifact (`reply_draft.v1`)
+
+Key properties:
+- Drafts are **never auto-sent**
+- Content may only reference facts present in context
+- Uncertainty must be expressed explicitly (“I will confirm…”)
+- Human approval is always required before sending
+
+This establishes a true **human-in-the-loop** workflow.
 
 ---
 
 ## Where AI Fits (Intentionally Limited)
 
 AI may assist with:
-- Intent extraction
 - Handoff summarization
 - Drafting suggested replies
-- Pattern detection
+- Pattern detection & signal amplification
+- Operator decision support
 
 AI will **never**:
 - Execute side-effects
-- Override policy
-- Approve financial actions
+- Override policy decisions
+- Approve refunds or financial actions
+- Bypass verification layers
 
-Trust remains deterministic.
+All authority remains deterministic.
 
 ---
 
 ## Correct Next Steps (In Order)
 
-1. Replace summary stub with LLM-backed generation
-2. AI-assisted response drafting (human approval required)
-3. AI risk scoring (never authoritative)
-4. Admin UI for operators (React / Next.js)
+1. ✅ LLM-backed handoff summaries (complete)
+2. ✅ AI-assisted reply drafting (human approval required)
+3. AI risk scoring & prioritization (never authoritative)
+4. Operator admin UI (React / Next.js)
 
 ---
 
 ## Ops & Observability
 
-Metrics:
+Metrics tracked:
 - Escalation rate
 - SLA breaches
 - Idempotency replays
-- Handoff backlog
-- Resolution times
+- Handoff backlog size
+- Resolution time distribution
 
 Endpoints:
 ```
 GET /metrics
 GET /metrics/dashboard
 ```
+
+All AI artifacts are fully auditable and exportable.
 
 ---
 
@@ -293,11 +335,12 @@ npm run dev:sla-worker
 ## Current State
 
 ✔ Agent orchestration  
-✔ Policy enforcement  
+✔ Deterministic policy enforcement  
 ✔ Verification layer  
-✔ Human-in-the-loop  
-✔ Outbox & retries  
+✔ Human-in-the-loop workflows  
+✔ Outbox pattern with retries  
 ✔ SLA enforcement  
+✔ Versioned AI artifacts  
 ✔ Audit export  
 ✔ Ops metrics  
 
