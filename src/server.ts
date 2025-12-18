@@ -14,6 +14,9 @@ import { toCsv, flattenAuditToRows } from "./audit/csv";
 import { buildHandoffContextBundle } from "./ai/handoffContext";
 
 import { getHandoffSummaryArtifact } from "./ai/handoffSummaryRepo";
+import { OUTBOX_EVENT_TYPES } from "./outbox/eventTypes"; 
+
+import "dotenv/config";
 
 dotenv.config();
 
@@ -87,6 +90,40 @@ server.get("/handoffs/:id/ai/summary", async (req, reply) => {
     output
   };
 });
+
+// POST /handoffs/:id/ai/draft
+// Enqueue AI reply draft generation (human approval required; never auto-send)
+server.post(
+  "/handoffs/:id/ai/draft",
+  async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+    const { id } = req.params;
+
+    // 1) Ensure handoff exists
+    const h = await prisma.handoff.findUnique({ where: { id } });
+    if (!h) return reply.code(404).send({ ok: false, error: "Handoff not found" });
+
+    // 2) Enqueue idempotently (exactly-one job per handoff)
+    const idempotencyKey = `ai:reply_draft:${id}`;
+
+    await prisma.outboxEvent.upsert({
+      where: { idempotencyKey },
+      update: {},
+      create: {
+        type: OUTBOX_EVENT_TYPES.AI_REPLY_DRAFT_GENERATE,
+        payloadJson: JSON.stringify({ handoffId: id, version: "handoff_context.v1" }),
+        idempotencyKey
+      }
+    });
+
+    return reply.send({
+      ok: true,
+      queued: true,
+      handoffId: id,
+      eventType: OUTBOX_EVENT_TYPES.AI_REPLY_DRAFT_GENERATE,
+      idempotencyKey
+    });
+  }
+);
 
 
 // --------------------

@@ -1,5 +1,7 @@
+import "dotenv/config";
 import { prisma } from "../db/prisma";
 import { enqueueOutboxEvent } from "../outbox/outbox";
+
 
 const POLL_MS = 10_000;
 

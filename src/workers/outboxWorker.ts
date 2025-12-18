@@ -1,7 +1,17 @@
 // src/workers/outboxWorker.ts
+import "dotenv/config";
 import { prisma } from "../db/prisma";
 import { OUTBOX_EVENT_TYPES } from "../outbox/eventTypes";
 import { handleAiHandoffSummaryGenerate } from "./aiWorker";
+import { handleAiReplyDraftGenerate } from "./replyDraftWorker";
+
+
+console.log("🔑 OPENAI key loaded?", {
+  hasKey: Boolean(process.env.OPENAI_API_KEY),
+  prefix: process.env.OPENAI_API_KEY?.slice(0, 10) ?? null,
+  model: process.env.OPENAI_MODEL ?? null
+});
+
 
 type OutboxStatus = "pending" | "processing" | "sent" | "failed" | "dead";
 
@@ -34,6 +44,12 @@ async function deliver(event: { type: string; payloadJson: string }) {
       await handleAiHandoffSummaryGenerate(payload.handoffId);
       return;
     }
+
+    case OUTBOX_EVENT_TYPES.AI_REPLY_DRAFT_GENERATE: {
+  const payload = JSON.parse(event.payloadJson) as { handoffId: string };
+  await handleAiReplyDraftGenerate(payload.handoffId);
+  return;
+}
 
     default:
       throw new Error(`UNHANDLED_EVENT_TYPE:${event.type}`);

@@ -1,58 +1,55 @@
-// src/workers/aiWorker.ts
 import { prisma } from "../db/prisma";
 import { buildHandoffContextBundle } from "../ai/handoffContext";
 import { generateStructuredJson } from "../ai/openaiClient";
-import { HANDOFF_SUMMARY_SCHEMA, buildHandoffSummaryPrompt } from "../ai/prompts/handoffSummary";
+import { REPLY_DRAFT_SCHEMA, buildReplyDraftPrompt } from "../ai/prompts/replyDraft";
 
-export async function handleAiHandoffSummaryGenerate(handoffId: string) {
+export async function handleAiReplyDraftGenerate(handoffId: string) {
   const bundle = await buildHandoffContextBundle(handoffId);
 
   try {
-    const { system, user } = buildHandoffSummaryPrompt(bundle);
+    const { system, user } = buildReplyDraftPrompt(bundle);
 
     const llmJson = await generateStructuredJson({
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       system,
       user,
-      schemaName: "handoff_summary_v1",
-      schema: HANDOFF_SUMMARY_SCHEMA,
+      schemaName: "reply_draft_v1",
+      schema: REPLY_DRAFT_SCHEMA,
       timeoutMs: 20_000
     });
 
-    // Ensure required invariant fields (belt & suspenders)
-    const summary = {
+    const draft = {
       ...llmJson,
-      version: "handoff_summary.v1" as const,
+      version: "reply_draft.v1" as const,
       handoffId,
       generatedAt: new Date().toISOString()
     };
 
     await prisma.aiArtifact.upsert({
-      where: { handoffId_type: { handoffId, type: "handoff_summary.v1" } },
+      where: { handoffId_type: { handoffId, type: "reply_draft.v1" } },
       update: {
         status: "ok",
         inputJson: JSON.stringify(bundle),
-        outputJson: JSON.stringify(summary)
+        outputJson: JSON.stringify(draft)
       },
       create: {
         handoffId,
-        type: "handoff_summary.v1",
+        type: "reply_draft.v1",
         status: "ok",
         inputJson: JSON.stringify(bundle),
-        outputJson: JSON.stringify(summary)
+        outputJson: JSON.stringify(draft)
       }
     });
 
-    console.log(`🤖 [AI] wrote handoff_summary.v1 for handoffId=${handoffId}`);
+    console.log(`✍️ [AI] wrote reply_draft.v1 for handoffId=${handoffId}`);
   } catch (err: any) {
-    // Persist failure as an artifact too (so operators can audit + you can debug)
     await prisma.aiArtifact.upsert({
-      where: { handoffId_type: { handoffId, type: "handoff_summary.v1" } },
+      where: { handoffId_type: { handoffId, type: "reply_draft.v1" } },
       update: {
         status: "failed",
         inputJson: JSON.stringify(bundle),
         outputJson: JSON.stringify({
-          version: "handoff_summary.v1",
+          version: "reply_draft.v1",
           generatedAt: new Date().toISOString(),
           handoffId,
           error: String(err?.message ?? err)
@@ -60,11 +57,11 @@ export async function handleAiHandoffSummaryGenerate(handoffId: string) {
       },
       create: {
         handoffId,
-        type: "handoff_summary.v1",
+        type: "reply_draft.v1",
         status: "failed",
         inputJson: JSON.stringify(bundle),
         outputJson: JSON.stringify({
-          version: "handoff_summary.v1",
+          version: "reply_draft.v1",
           generatedAt: new Date().toISOString(),
           handoffId,
           error: String(err?.message ?? err)
@@ -72,7 +69,6 @@ export async function handleAiHandoffSummaryGenerate(handoffId: string) {
       }
     });
 
-    // Throw so outbox retries still work
     throw err;
   }
 }

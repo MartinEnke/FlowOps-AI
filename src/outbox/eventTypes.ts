@@ -6,6 +6,7 @@ export const OUTBOX_EVENT_TYPES = {
 
   // 🤖 AI (assistive, async)
   AI_HANDOFF_SUMMARY_GENERATE: "ai.handoff_summary.generate",
+  AI_REPLY_DRAFT_GENERATE: "ai.reply_draft.generate"
 } as const;
 
 export type OutboxEventType =
