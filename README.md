@@ -1,4 +1,5 @@
-# FlowOps AI
+# AI-Assisted Operations Console
+**Structured AI assistance for high-stakes operational workflows**
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)
 ![Fastify](https://img.shields.io/badge/Fastify-Production--Ready-black)
@@ -12,20 +13,76 @@ _TypeScript · Agentic Workflows · Policy · Verification · Human-in-the-Loop 
 
 ---
 
-## Executive Summary
+## Overview
 
-**FlowOps AI** is a **production-grade agent orchestration platform** that demonstrates how autonomous systems should be built *before* large language models are introduced.
+**AI-Assisted Operations Console** is a production-grade, human-in-the-loop platform for handling complex operational cases where automation alone is unsafe or inappropriate.
 
-Rather than focusing on prompt engineering, the system emphasizes:
+The system is designed for scenarios such as escalated customer support, trust & safety reviews, compliance-sensitive workflows, and other high-risk operations where **AI must assist humans — not replace them**.
 
-- Deterministic execution
-- Safety guarantees
-- Failure isolation
-- Auditability
-- Human oversight
-- Operational resilience
+Instead of deploying autonomous agents, the platform introduces **governed AI assistance** through structured, auditable artifacts that support human decision-making while preserving accountability.
 
-AI is **assistive — never authoritative**.
+---
+
+## Design Philosophy
+
+This project intentionally does **not** focus on chatbot-style prompt engineering or end-to-end automation.
+
+Instead, it demonstrates how AI-powered systems should be built **before** large language models are allowed to influence real-world outcomes.
+
+The platform prioritizes:
+
+- **Deterministic execution**  
+  Core workflows and state transitions remain predictable and testable.
+
+- **Safety guarantees**  
+  AI outputs can inform decisions but can never execute them autonomously.
+
+- **Failure isolation**  
+  AI runs asynchronously with explicit success/failure handling.
+
+- **Auditability**  
+  All AI outputs are versioned, typed, and persisted as immutable artifacts.
+
+- **Human oversight**  
+  Operators explicitly claim ownership and resolve cases.
+
+- **Operational resilience**  
+  Long-running and unreliable tasks are handled via outbox and worker patterns.
+
+> **AI is assistive — never authoritative.**
+
+---
+
+## What the System Does
+
+The platform manages **handoffs** — cases that require human review due to low confidence, escalation, or policy constraints.
+
+For each handoff, AI can generate structured artifacts such as:
+
+- **Case summaries** to reduce cognitive load
+- **Risk assessments** to highlight uncertainty and SLA pressure
+- **Reply drafts** to accelerate communication while remaining editable
+
+Operators interact with these artifacts through an internal **operations console**, where they can:
+
+- triage by priority and risk
+- explicitly claim ownership
+- review AI outputs
+- make final resolution decisions
+
+At no point can AI resolve a case on its own.
+
+---
+
+## Why This Matters
+
+In many real-world systems, AI failures are dangerous not because models are inaccurate — but because **control, accountability, and observability are missing**.
+
+This project demonstrates a safer alternative:
+
+> AI as a structured, inspectable assistant embedded into reliable operational workflows.
+
+It reflects patterns used in production environments where trust, compliance, and human responsibility are non-negotiable.
 
 ---
 

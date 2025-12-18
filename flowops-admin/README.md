@@ -1,76 +1,96 @@
-# FlowOps Admin Console
+# AI-Assisted Operations Console
 
-The **FlowOps Admin Console** is the internal operator interface for **FlowOps AI**.
+The **AI-Assisted Operations Console** is the internal operator interface for the AI-Assisted Operations Platform.
 
-It provides a human-in-the-loop UI for inspecting handoffs, reviewing AI-generated artifacts, and performing controlled operational actions.  
-The console is intentionally designed as a **decision-support tool**, not an autonomous system.
+It provides a **human-in-the-loop operations UI** for inspecting handoffs, reviewing AI-generated artifacts, and performing controlled, accountable actions.
+
+The console is intentionally designed as a **decision-support system**, not an autonomous agent interface.
 
 ---
 
 ## Purpose
 
 The admin UI exists to give operators:
+
 - Full visibility into active and historical handoffs
-- Transparent access to AI-generated artifacts
-- Explicit control over escalation, claiming, and resolution
+- Transparent access to all AI-generated artifacts
+- Explicit control over claiming, escalation, and resolution
 - A safe interface to *request* AI assistance without delegating authority
 
-AI outputs are **review-only by default**.
+AI outputs are **assistive and review-only by default**.
 
 ---
 
 ## Current Capabilities
 
 ### Handoff Overview
-- List all active handoffs
-- View status, priority, reason, and SLA state
-- Navigate into individual handoff detail pages
+
+Operators can:
+
+- View all active handoffs
+- Inspect status, priority, reason, and SLA state
+- Navigate into individual handoff detail views
+
+This view supports fast triage and workload awareness without hiding system state.
+
+---
 
 ### Handoff Detail View
+
 For each handoff, operators can inspect:
 
-- **Core handoff metadata**
-  - Status, priority, reason
-  - SLA due / breached state
+#### Core Handoff Metadata
+- Status and priority
+- Escalation reason
+- SLA due / breached state
 
-- **AI Artifacts (read-only)**
-  - `handoff_summary.v1`
-  - `reply_draft.v1`
-  - `risk_assessment.v1`
+#### AI Artifacts (read-only)
 
-Artifacts are:
+The system may attach structured AI artifacts such as:
+
+- `handoff_summary.v1` — contextual briefing for operators
+- `risk_assessment.v1` — non-authoritative risk signals and attention flags
+- `reply_draft.v1` — editable, customer-facing response drafts
+
+All artifacts are:
+
 - Versioned
 - Timestamped
+- Persisted
 - Fully auditable
 - Never auto-applied
 
+---
+
 ### Explicit AI Triggers
-Operators may manually request AI assistance:
+
+Operators may manually request AI assistance via explicit actions:
 
 | Action | Description |
 |------|------------|
-| Generate Draft | Produces a customer-facing reply suggestion |
-| Generate Risk | Produces a non-authoritative risk assessment |
-| Claim | Claims the handoff for manual handling |
-| Resolve | Resolves the handoff |
+| **Draft Reply** | Generates a customer-facing reply suggestion |
+| **Run Risk Check** | Produces a structured, non-authoritative risk assessment |
+| **Assign to Me** | Claims the handoff for manual handling |
+| **Mark Resolved** | Resolves the handoff with a human decision |
 
-All AI triggers enqueue async outbox events handled by the backend.
+All AI actions enqueue **asynchronous outbox events** handled by the backend.  
+If AI fails, the handoff remains fully operable.
 
 ---
 
 ## Design Principles
 
 - **Human authority first**  
-  AI suggests — humans decide.
+  AI informs decisions — humans make them.
 
 - **No hidden automation**  
   Every AI action is explicitly triggered and visible.
 
 - **Strict separation of concerns**  
-  UI does not execute business logic or policy.
+  The UI never executes business logic or policy.
 
 - **Failure-safe by design**  
-  If AI fails, the system continues normally.
+  AI errors never block operators or core workflows.
 
 ---
 
@@ -80,7 +100,7 @@ All AI triggers enqueue async outbox events handled by the backend.
 - **TypeScript**
 - **Tailwind CSS**
 - Server Components + Server Actions
-- Backend communication via REST endpoints
+- Backend communication via typed REST endpoints
 
 ---
 
@@ -88,7 +108,7 @@ All AI triggers enqueue async outbox events handled by the backend.
 
 ### Prerequisites
 - Node.js 18+
-- FlowOps AI backend running locally
+- AI-Assisted Operations backend running locally
 
 ### Install
 ```bash
@@ -137,19 +157,19 @@ src/
 Planned improvements (in order):
 
 1. **UI state refinements**
-   - Better loading & empty states
-   - Improved contrast and readability
-   - Long-text wrapping & truncation controls
+   - Improved loading and empty states
+   - Better contrast and readability
+   - Long-text wrapping and truncation controls
 
 2. **Operator ergonomics**
    - Inline artifact diffing
    - Copy-to-clipboard helpers
    - Collapsible artifact sections
 
-3. **Risk-aware sorting & filters**
-   - Sort handoffs by risk level
+3. **Risk-aware prioritization**
+   - Sorting by risk level
    - SLA pressure highlighting
-   - Attention queues for operators
+   - Attention-based operator queues
 
 4. **Authentication & roles**
    - Operator login
@@ -158,14 +178,15 @@ Planned improvements (in order):
 5. **Production hardening**
    - Error boundaries
    - Audit banners
-   - Environment-safe configs
+   - Environment-safe configuration
 
 ---
 
 ## Philosophy
 
-This UI is **not** a chatbot frontend.  
-It is an **operational console** for humans supervising AI-assisted workflows.
+This UI is **not a chatbot frontend**.
+
+It is an **operations console** for humans supervising AI-assisted workflows in environments where trust, accountability, and safety matter.
 
 > Trust is built through visibility, not automation.
 
@@ -175,8 +196,8 @@ It is an **operational console** for humans supervising AI-assisted workflows.
 
 **Martin Enke**
 
-FlowOps AI is an exploration of how AI systems can be:
-- transparent
-- constrained
-- auditable
-- and genuinely useful in real operations
+This project explores how AI systems can be built to be:
+- transparent  
+- constrained  
+- auditable  
+- and genuinely useful in real operational environments
