@@ -148,13 +148,13 @@ export default async function HandoffDetailPage({
           className="text-sm text-neutral-700 underline underline-offset-4 hover:text-black"
           href="/handoffs"
         >
-          ← Back to handoffs
+          ← Back to cases
         </Link>
 
         <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold text-neutral-900">
-              Handoff <span className="font-mono text-lg">{handoff.id}</span>
+              Case ID: <span className="font-mono text-lg">{handoff.id}</span>
             </h1>
 
             <div className="mt-3 flex flex-wrap gap-2 text-sm">
@@ -224,13 +224,13 @@ export default async function HandoffDetailPage({
         </div>
 
         <div className="mt-6 grid gap-4">
-          <ArtifactBlock title="AI Summary" artifact={summary} />
+          <ArtifactBlock title="Case Summary (AI-assisted)" artifact={summary} />
           <ArtifactBlock
-            title="AI Risk Assessment"
+            title="Risk Assessment (AI-assisted)"
             artifact={risk}
-            emptyText="Risk scoring not generated yet."
+            emptyText="Risk assessment not generated yet."
           />
-          <ArtifactBlock title="AI Reply Draft" artifact={draft} />
+          <ArtifactBlock title="Reply Draft (AI-assisted)" artifact={draft} />
         </div>
       </div>
     </main>

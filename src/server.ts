@@ -22,6 +22,85 @@ dotenv.config();
 
 const server = Fastify({ logger: true });
 
+// --- 5B: Handoff list with computed signals (single call) ---
+server.get("/handoffs", async (req, reply) => {
+  const q = req.query as { includeSignals?: string };
+  const includeSignals = q.includeSignals === "1" || q.includeSignals === "true";
+
+  if (!includeSignals) {
+    const handoffs = await prisma.handoff.findMany({
+      orderBy: { createdAt: "desc" }
+    });
+    return reply.send(handoffs);
+  }
+
+  // IMPORTANT: change `aiArtifacts` to your actual relation name if different.
+  const handoffs = await prisma.handoff.findMany({
+    orderBy: { createdAt: "desc" },
+    include: {
+      aiArtifacts: {
+        where: {
+          type: { in: ["handoff_summary.v1", "reply_draft.v1", "risk_assessment.v1"] }
+        },
+        orderBy: { updatedAt: "desc" }
+      }
+    }
+  });
+
+  function safeParseJson<T>(s: string): T | null {
+    try {
+      return JSON.parse(s) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  function computeSlaRemainingSeconds(slaDueAt?: string | null) {
+    if (!slaDueAt) return null;
+    const dueMs = new Date(slaDueAt).getTime();
+    if (!Number.isFinite(dueMs)) return null;
+    return Math.floor((dueMs - Date.now()) / 1000);
+  }
+
+  function computeSignalsForHandoff(artifacts: any[], slaDueAt?: string | null) {
+    const summary = artifacts.find((a) => a.type === "handoff_summary.v1" && a.status === "ok");
+    const draft = artifacts.find((a) => a.type === "reply_draft.v1" && a.status === "ok");
+    const risk = artifacts.find((a) => a.type === "risk_assessment.v1" && a.status === "ok");
+
+    let latestRiskLevel: "low" | "medium" | "high" | null = null;
+    if (risk?.outputJson) {
+      const parsed = safeParseJson<{ riskLevel?: string }>(risk.outputJson);
+      const level = parsed?.riskLevel;
+      if (level === "low" || level === "medium" || level === "high") latestRiskLevel = level;
+    }
+
+    const lastArtifactAt =
+      artifacts.length > 0
+        ? artifacts
+            .map((a) => a.updatedAt as string)
+            .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null
+        : null;
+
+    return {
+      latestRiskLevel,
+      riskStatus: latestRiskLevel ? "assessed" : "not_assessed",
+      slaRemainingSeconds: computeSlaRemainingSeconds(slaDueAt),
+      hasDraft: Boolean(draft),
+      hasSummary: Boolean(summary),
+      lastArtifactAt
+    };
+  }
+
+  const withSignals = handoffs.map((h: any) => {
+    const signals = computeSignalsForHandoff(h.aiArtifacts ?? [], h.slaDueAt ?? null);
+    const { aiArtifacts, ...rest } = h;
+    return { ...rest, signals };
+  });
+
+  return reply.send(withSignals);
+});
+
+
 server.get("/", async () => {
   return { message: "FlowOps AI is running. Try /health" };
 });
@@ -155,6 +234,58 @@ server.post(
     });
   }
 );
+
+
+type RiskLevel = "low" | "medium" | "high" | null;
+
+function safeParseJson<T>(s: string): T | null {
+  try {
+    return JSON.parse(s) as T;
+  } catch {
+    return null;
+  }
+}
+
+function computeSlaRemainingSeconds(slaDueAt?: string | null) {
+  if (!slaDueAt) return null;
+  const dueMs = new Date(slaDueAt).getTime();
+  if (!Number.isFinite(dueMs)) return null;
+  return Math.floor((dueMs - Date.now()) / 1000);
+}
+
+function computeSignalsForHandoff(artifacts: any[], slaDueAt?: string | null) {
+  // We only care about a few artifact types for the list view
+  const summary = artifacts.find((a) => a.type === "handoff_summary.v1" && a.status === "ok");
+  const draft = artifacts.find((a) => a.type === "reply_draft.v1" && a.status === "ok");
+  const risk = artifacts.find((a) => a.type === "risk_assessment.v1" && a.status === "ok");
+
+  let latestRiskLevel: RiskLevel = null;
+  if (risk?.outputJson) {
+    const parsed = safeParseJson<{ riskLevel?: string }>(risk.outputJson);
+    const level = parsed?.riskLevel;
+    if (level === "low" || level === "medium" || level === "high") {
+      latestRiskLevel = level;
+    }
+  }
+
+  const lastArtifactAt =
+    artifacts.length > 0
+      ? artifacts
+          .map((a) => a.updatedAt as string)
+          .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null
+      : null;
+
+  return {
+    latestRiskLevel,
+    riskStatus: latestRiskLevel ? "assessed" : "not_assessed",
+    slaRemainingSeconds: computeSlaRemainingSeconds(slaDueAt),
+    hasDraft: Boolean(draft),
+    hasSummary: Boolean(summary),
+    lastArtifactAt
+  };
+}
+
+
 
 
 // --------------------
@@ -380,6 +511,8 @@ server.post(
     return reply.send(updated);
   }
 );
+
+
 
 // --------------------
 // 7.8: Metrics (ops dashboard)
@@ -702,6 +835,7 @@ const bundle = await buildAuditBundle(params);
     return reply.send(csv);
   }
 );
+
 
 
 // --------------------
