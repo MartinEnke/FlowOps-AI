@@ -1,7 +1,7 @@
 // src/server.ts
 
 import Fastify, { FastifyRequest } from "fastify";
-import dotenv from "dotenv";
+import "dotenv/config";
 
 import { getAccountStatus } from "./tools/accountTool";
 import { decideRefund, shouldEscalate } from "./agent/policy";
@@ -14,15 +14,103 @@ import { toCsv, flattenAuditToRows } from "./audit/csv";
 import { buildHandoffContextBundle } from "./ai/handoffContext";
 
 import { getHandoffSummaryArtifact } from "./ai/handoffSummaryRepo";
-import { OUTBOX_EVENT_TYPES } from "./outbox/eventTypes"; 
+import { OUTBOX_EVENT_TYPES } from "./outbox/eventTypes";
 
-import "dotenv/config";
-
-dotenv.config();
+import { requireRole } from "./auth/requireRole";
+import { safeParseJson } from "./utils/safeParseJson";
 
 const server = Fastify({ logger: true });
 
-// --- 5B: Handoff list with computed signals (single call) ---
+/**
+ * ---------------------------------------------------------
+ * IMPORTANT: Allow empty JSON bodies when Content-Type is set
+ * Fixes: FST_ERR_CTP_EMPTY_JSON_BODY coming from the frontend.
+ * ---------------------------------------------------------
+ */
+server.addContentTypeParser(
+  "application/json",
+  { parseAs: "string" },
+  (req, body, done) => {
+    try {
+      const text = (body ?? "").toString();
+      if (!text.trim()) return done(null, null); // allow empty body
+      done(null, JSON.parse(text));
+    } catch (err) {
+      done(err as Error);
+    }
+  }
+);
+
+/**
+ * Helpers
+ */
+type RiskLevel = "low" | "medium" | "high" | null;
+
+function computeSlaRemainingSeconds(slaDueAt?: Date | null) {
+  if (!slaDueAt) return null;
+  return Math.floor((slaDueAt.getTime() - Date.now()) / 1000);
+}
+
+function computeSignalsForHandoff(artifacts: any[], slaDueAt?: Date | null) {
+  const summary = artifacts.find(
+    (a) => a.type === "handoff_summary.v1" && a.status === "ok"
+  );
+  const draft = artifacts.find(
+    (a) => a.type === "reply_draft.v1" && a.status === "ok"
+  );
+  const risk = artifacts.find(
+    (a) => a.type === "risk_assessment.v1" && a.status === "ok"
+  );
+
+  let latestRiskLevel: RiskLevel = null;
+
+  if (risk?.outputJson) {
+    const parsed = safeParseJson<{ riskLevel?: string }>(risk.outputJson);
+    const level = parsed?.riskLevel;
+    if (level === "low" || level === "medium" || level === "high") {
+      latestRiskLevel = level;
+    }
+  }
+
+  const lastArtifactAt =
+    artifacts.length > 0
+      ? artifacts
+          .map((a) => a.updatedAt as Date)
+          .sort((a, b) => b.getTime() - a.getTime())[0]
+          ?.toISOString() ?? null
+      : null;
+
+  return {
+    latestRiskLevel,
+    riskStatus: latestRiskLevel ? "assessed" : "not_assessed",
+    slaRemainingSeconds: computeSlaRemainingSeconds(slaDueAt),
+    hasDraft: Boolean(draft),
+    hasSummary: Boolean(summary),
+    lastArtifactAt
+  };
+}
+
+function toIsoOrNull(d?: Date | null) {
+  return d ? d.toISOString() : null;
+}
+
+/**
+ * Basic routes
+ */
+server.get("/", async () => {
+  return { message: "FlowOps AI is running. Try /health" };
+});
+
+server.get("/health", async () => {
+  return { status: "ok", service: "FlowOps AI" };
+});
+
+/**
+ * --------------------
+ * 5B: Handoff list with computed signals (single call)
+ * --------------------
+ * GET /handoffs?includeSignals=1
+ */
 server.get("/handoffs", async (req, reply) => {
   const q = req.query as { includeSignals?: string };
   const includeSignals = q.includeSignals === "1" || q.includeSignals === "true";
@@ -34,84 +122,320 @@ server.get("/handoffs", async (req, reply) => {
     return reply.send(handoffs);
   }
 
-  // IMPORTANT: change `aiArtifacts` to your actual relation name if different.
   const handoffs = await prisma.handoff.findMany({
     orderBy: { createdAt: "desc" },
     include: {
       aiArtifacts: {
         where: {
-          type: { in: ["handoff_summary.v1", "reply_draft.v1", "risk_assessment.v1"] }
+          type: {
+            in: ["handoff_summary.v1", "reply_draft.v1", "risk_assessment.v1"]
+          }
         },
         orderBy: { updatedAt: "desc" }
       }
     }
   });
 
-  function safeParseJson<T>(s: string): T | null {
-    try {
-      return JSON.parse(s) as T;
-    } catch {
-      return null;
-    }
-  }
-
-  function computeSlaRemainingSeconds(slaDueAt?: string | null) {
-    if (!slaDueAt) return null;
-    const dueMs = new Date(slaDueAt).getTime();
-    if (!Number.isFinite(dueMs)) return null;
-    return Math.floor((dueMs - Date.now()) / 1000);
-  }
-
-  function computeSignalsForHandoff(artifacts: any[], slaDueAt?: string | null) {
-    const summary = artifacts.find((a) => a.type === "handoff_summary.v1" && a.status === "ok");
-    const draft = artifacts.find((a) => a.type === "reply_draft.v1" && a.status === "ok");
-    const risk = artifacts.find((a) => a.type === "risk_assessment.v1" && a.status === "ok");
-
-    let latestRiskLevel: "low" | "medium" | "high" | null = null;
-    if (risk?.outputJson) {
-      const parsed = safeParseJson<{ riskLevel?: string }>(risk.outputJson);
-      const level = parsed?.riskLevel;
-      if (level === "low" || level === "medium" || level === "high") latestRiskLevel = level;
-    }
-
-    const lastArtifactAt =
-      artifacts.length > 0
-        ? artifacts
-            .map((a) => a.updatedAt as string)
-            .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null
-        : null;
+  const withSignals = handoffs.map((h: any) => {
+    const signals = computeSignalsForHandoff(
+      h.aiArtifacts ?? [],
+      h.slaDueAt ?? null
+    );
+    const { aiArtifacts, ...rest } = h;
 
     return {
-      latestRiskLevel,
-      riskStatus: latestRiskLevel ? "assessed" : "not_assessed",
-      slaRemainingSeconds: computeSlaRemainingSeconds(slaDueAt),
-      hasDraft: Boolean(draft),
-      hasSummary: Boolean(summary),
-      lastArtifactAt
+      ...rest,
+      slaDueAt: toIsoOrNull(rest.slaDueAt),
+      slaBreachedAt: toIsoOrNull(rest.slaBreachedAt),
+      claimedAt: toIsoOrNull(rest.claimedAt),
+      resolvedAt: toIsoOrNull(rest.resolvedAt),
+      createdAt: toIsoOrNull(rest.createdAt),
+      updatedAt: toIsoOrNull(rest.updatedAt),
+      signals
     };
-  }
-
-  const withSignals = handoffs.map((h: any) => {
-    const signals = computeSignalsForHandoff(h.aiArtifacts ?? [], h.slaDueAt ?? null);
-    const { aiArtifacts, ...rest } = h;
-    return { ...rest, signals };
   });
 
   return reply.send(withSignals);
 });
 
+/**
+ * --------------------
+ * Get a single handoff (inspection)
+ * --------------------
+ * GET /handoffs/:id
+ */
+server.get(
+  "/handoffs/:id",
+  async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+    const { id } = req.params;
 
-server.get("/", async () => {
-  return { message: "FlowOps AI is running. Try /health" };
+    const h = await prisma.handoff.findUnique({ where: { id } });
+    if (!h) return reply.code(404).send({ error: "Handoff not found" });
+
+    return reply.send({
+      id: h.id,
+      customerId: h.customerId,
+      ticketId: h.ticketId,
+      reason: h.reason,
+      priority: h.priority,
+      mode: h.mode,
+      confidence: h.confidence,
+      status: h.status,
+
+      claimedBy: h.claimedBy ?? null,
+      claimedAt: toIsoOrNull(h.claimedAt),
+      resolvedBy: h.resolvedBy ?? null,
+      resolvedAt: toIsoOrNull(h.resolvedAt),
+      resolutionNotes: h.resolutionNotes ?? null,
+
+      issues: h.issuesJson ? safeParseJson<any[]>(h.issuesJson) ?? [] : [],
+      actions: h.actionsJson ? safeParseJson<any[]>(h.actionsJson) ?? [] : [],
+
+      createdAt: h.createdAt.toISOString(),
+      updatedAt: h.updatedAt.toISOString(),
+      slaDueAt: toIsoOrNull(h.slaDueAt),
+      slaBreachedAt: toIsoOrNull(h.slaBreachedAt)
+    });
+  }
+);
+
+/**
+ * --------------------
+ * RBAC-protected operator actions
+ * --------------------
+ * POST /handoffs/:id/claim
+ * POST /handoffs/:id/resolve
+ */
+server.post<{ Params: { id: string } }>(
+  "/handoffs/:id/claim",
+  { preHandler: requireRole(["operator", "supervisor"]) },
+  async (req, reply) => {
+    const { id } = req.params;
+    const operator = (req as any).operator as { id: string; role?: string };
+
+    const result = await prisma.handoff.updateMany({
+      where: { id, status: "pending", claimedAt: null },
+      data: {
+        status: "claimed",
+        claimedBy: operator.id,
+        claimedAt: new Date()
+      }
+    });
+
+    if (result.count === 0) {
+      return reply.code(409).send({
+        ok: false,
+        error: "Handoff already claimed or not pending"
+      });
+    }
+
+    const updated = await prisma.handoff.findUnique({ where: { id } });
+    return reply.send({ ok: true, handoff: updated });
+  }
+);
+
+server.post<{
+  Params: { id: string };
+  Body: { resolutionNotes?: string };
+}>(
+  "/handoffs/:id/resolve",
+  { preHandler: requireRole(["operator", "supervisor"]) },
+  async (req, reply) => {
+    const { id } = req.params;
+    const operator = (req as any).operator as { id: string; role?: string };
+
+    const resolutionNotes =
+      typeof req.body?.resolutionNotes === "string"
+        ? req.body.resolutionNotes.trim() || null
+        : null;
+
+    const h = await prisma.handoff.findUnique({ where: { id } });
+    if (!h) return reply.code(404).send({ ok: false, error: "Handoff not found" });
+
+    if (h.status === "resolved") {
+      return reply.code(409).send({ ok: false, error: "Handoff already resolved" });
+    }
+
+    if (h.status !== "claimed" || !h.claimedAt || !h.claimedBy) {
+      return reply.code(409).send({
+        ok: false,
+        error: "Handoff must be claimed before resolving"
+      });
+    }
+
+    const isSupervisor = operator.role === "supervisor";
+    if (!isSupervisor && h.claimedBy !== operator.id) {
+      return reply.code(409).send({
+        ok: false,
+        error: "Only the claiming operator can resolve"
+      });
+    }
+
+    const updated = await prisma.handoff.update({
+      where: { id },
+      data: {
+        status: "resolved",
+        resolvedBy: operator.id,
+        resolvedAt: new Date(),
+        resolutionNotes
+      }
+    });
+
+    if (updated.ticketId) {
+      await prisma.ticket.updateMany({
+        where: { id: updated.ticketId, status: { not: "resolved" } },
+        data: { status: "resolved" }
+      });
+    }
+
+    return reply.send({ ok: true, handoff: updated });
+  }
+);
+
+/**
+ * --------------------
+ * AI artifacts endpoints
+ * --------------------
+ */
+
+// GET summary artifact (read-only)
+server.get("/handoffs/:id/ai/summary", async (req, reply) => {
+  const { id } = req.params as { id: string };
+
+  const artifact = await getHandoffSummaryArtifact(id);
+
+  if (!artifact) {
+    return reply
+      .code(404)
+      .send({ ok: false, error: "No AI summary found for this handoff yet." });
+  }
+
+  const output = safeParseJson<any>(artifact.outputJson) ?? artifact.outputJson;
+
+  return reply.send({
+    ok: true,
+    artifact: {
+      id: artifact.id,
+      handoffId: artifact.handoffId,
+      type: artifact.type,
+      status: artifact.status,
+      createdAt: artifact.createdAt,
+      updatedAt: artifact.updatedAt
+    },
+    output
+  });
 });
 
-server.get("/health", async () => {
-  return { status: "ok", service: "FlowOps AI" };
-});
+// POST /handoffs/:id/ai/draft (enqueue; RBAC protected)
+server.post(
+  "/handoffs/:id/ai/draft",
+  { preHandler: requireRole(["operator", "supervisor"]) },
+  async (req, reply) => {
+    const { id } = req.params as { id: string };
 
-// --------------------
-// Debug: tools
-// --------------------
+    const h = await prisma.handoff.findUnique({ where: { id } });
+    if (!h) return reply.code(404).send({ ok: false, error: "Handoff not found" });
+
+    const idempotencyKey = `ai:reply_draft:${id}`;
+
+    await prisma.outboxEvent.upsert({
+      where: { idempotencyKey },
+      update: {},
+      create: {
+        type: OUTBOX_EVENT_TYPES.AI_REPLY_DRAFT_GENERATE,
+        payloadJson: JSON.stringify({
+          handoffId: id,
+          version: "handoff_context.v1"
+        }),
+        idempotencyKey
+      }
+    });
+
+    return reply.send({
+      ok: true,
+      queued: true,
+      handoffId: id,
+      eventType: OUTBOX_EVENT_TYPES.AI_REPLY_DRAFT_GENERATE,
+      idempotencyKey
+    });
+  }
+);
+
+// POST /handoffs/:id/ai/risk (enqueue; RBAC protected)
+server.post(
+  "/handoffs/:id/ai/risk",
+  { preHandler: requireRole(["operator", "supervisor"]) },
+  async (req, reply) => {
+    const { id } = req.params as { id: string };
+
+    const h = await prisma.handoff.findUnique({ where: { id } });
+    if (!h) return reply.code(404).send({ ok: false, error: "Handoff not found" });
+
+    const idempotencyKey = `ai:risk_assessment:${id}`;
+
+    await prisma.outboxEvent.upsert({
+      where: { idempotencyKey },
+      update: {},
+      create: {
+        type: OUTBOX_EVENT_TYPES.AI_RISK_ASSESSMENT_GENERATE,
+        payloadJson: JSON.stringify({
+          handoffId: id,
+          version: "handoff_context.v1"
+        }),
+        idempotencyKey
+      }
+    });
+
+    return reply.send({
+      ok: true,
+      queued: true,
+      handoffId: id,
+      eventType: OUTBOX_EVENT_TYPES.AI_RISK_ASSESSMENT_GENERATE,
+      idempotencyKey
+    });
+  }
+);
+
+// POST /handoffs/:id/ai/resolution-suggestion (enqueue; RBAC protected)
+server.post(
+  "/handoffs/:id/ai/resolution-suggestion",
+  { preHandler: requireRole(["operator", "supervisor"]) },
+  async (req, reply) => {
+    const { id } = req.params as { id: string };
+
+    const h = await prisma.handoff.findUnique({ where: { id } });
+    if (!h) return reply.code(404).send({ ok: false, error: "Handoff not found" });
+
+    const idempotencyKey = `ai:resolution_suggestion:${id}`;
+
+    await prisma.outboxEvent.upsert({
+      where: { idempotencyKey },
+      update: {},
+      create: {
+        type: OUTBOX_EVENT_TYPES.AI_RESOLUTION_SUGGESTION_GENERATE,
+        payloadJson: JSON.stringify({
+          handoffId: id,
+          version: "handoff_context.v1"
+        }),
+        idempotencyKey
+      }
+    });
+
+    return reply.send({
+      ok: true,
+      queued: true,
+      handoffId: id,
+      eventType: OUTBOX_EVENT_TYPES.AI_RESOLUTION_SUGGESTION_GENERATE,
+      idempotencyKey
+    });
+  }
+);
+
+/**
+ * --------------------
+ * Debug: tools
+ * --------------------
+ */
 server.get(
   "/debug/account/:customerId",
   async (req: FastifyRequest<{ Params: { customerId: string } }>) => {
@@ -139,158 +463,11 @@ server.get(
   }
 );
 
-server.get("/handoffs/:id/ai/summary", async (req, reply) => {
-  const { id } = req.params as { id: string };
-
-  const artifact = await getHandoffSummaryArtifact(id);
-
-  if (!artifact) {
-    return reply.code(404).send({ ok: false, error: "No AI summary found for this handoff yet." });
-  }
-
-  // outputJson is a JSON string; return parsed
-  let output: any = null;
-  try {
-    output = JSON.parse(artifact.outputJson);
-  } catch {
-    output = artifact.outputJson;
-  }
-
-  return {
-    ok: true,
-    artifact: {
-      id: artifact.id,
-      handoffId: artifact.handoffId,
-      type: artifact.type,
-      status: artifact.status,
-      createdAt: artifact.createdAt,
-      updatedAt: artifact.updatedAt
-    },
-    output
-  };
-});
-
-// POST /handoffs/:id/ai/draft
-// Enqueue AI reply draft generation (human approval required; never auto-send)
-server.post(
-  "/handoffs/:id/ai/draft",
-  async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
-    const { id } = req.params;
-
-    // 1) Ensure handoff exists
-    const h = await prisma.handoff.findUnique({ where: { id } });
-    if (!h) return reply.code(404).send({ ok: false, error: "Handoff not found" });
-
-    // 2) Enqueue idempotently (exactly-one job per handoff)
-    const idempotencyKey = `ai:reply_draft:${id}`;
-
-    await prisma.outboxEvent.upsert({
-      where: { idempotencyKey },
-      update: {},
-      create: {
-        type: OUTBOX_EVENT_TYPES.AI_REPLY_DRAFT_GENERATE,
-        payloadJson: JSON.stringify({ handoffId: id, version: "handoff_context.v1" }),
-        idempotencyKey
-      }
-    });
-
-    return reply.send({
-      ok: true,
-      queued: true,
-      handoffId: id,
-      eventType: OUTBOX_EVENT_TYPES.AI_REPLY_DRAFT_GENERATE,
-      idempotencyKey
-    });
-  }
-);
-
-// POST /handoffs/:id/ai/risk
-server.post(
-  "/handoffs/:id/ai/risk",
-  async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
-    const { id } = req.params;
-
-    const h = await prisma.handoff.findUnique({ where: { id } });
-    if (!h) return reply.code(404).send({ ok: false, error: "Handoff not found" });
-
-    const idempotencyKey = `ai:risk:${id}`;
-
-    await prisma.outboxEvent.upsert({
-      where: { idempotencyKey },
-      update: {},
-      create: {
-        type: OUTBOX_EVENT_TYPES.AI_RISK_ASSESSMENT_GENERATE,
-        payloadJson: JSON.stringify({ handoffId: id, version: "handoff_context.v1" }),
-        idempotencyKey
-      }
-    });
-
-    return reply.send({
-      ok: true,
-      queued: true,
-      handoffId: id,
-      eventType: OUTBOX_EVENT_TYPES.AI_RISK_ASSESSMENT_GENERATE,
-      idempotencyKey
-    });
-  }
-);
-
-
-type RiskLevel = "low" | "medium" | "high" | null;
-
-function safeParseJson<T>(s: string): T | null {
-  try {
-    return JSON.parse(s) as T;
-  } catch {
-    return null;
-  }
-}
-
-function computeSlaRemainingSeconds(slaDueAt?: string | null) {
-  if (!slaDueAt) return null;
-  const dueMs = new Date(slaDueAt).getTime();
-  if (!Number.isFinite(dueMs)) return null;
-  return Math.floor((dueMs - Date.now()) / 1000);
-}
-
-function computeSignalsForHandoff(artifacts: any[], slaDueAt?: string | null) {
-  // We only care about a few artifact types for the list view
-  const summary = artifacts.find((a) => a.type === "handoff_summary.v1" && a.status === "ok");
-  const draft = artifacts.find((a) => a.type === "reply_draft.v1" && a.status === "ok");
-  const risk = artifacts.find((a) => a.type === "risk_assessment.v1" && a.status === "ok");
-
-  let latestRiskLevel: RiskLevel = null;
-  if (risk?.outputJson) {
-    const parsed = safeParseJson<{ riskLevel?: string }>(risk.outputJson);
-    const level = parsed?.riskLevel;
-    if (level === "low" || level === "medium" || level === "high") {
-      latestRiskLevel = level;
-    }
-  }
-
-  const lastArtifactAt =
-    artifacts.length > 0
-      ? artifacts
-          .map((a) => a.updatedAt as string)
-          .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null
-      : null;
-
-  return {
-    latestRiskLevel,
-    riskStatus: latestRiskLevel ? "assessed" : "not_assessed",
-    slaRemainingSeconds: computeSlaRemainingSeconds(slaDueAt),
-    hasDraft: Boolean(draft),
-    hasSummary: Boolean(summary),
-    lastArtifactAt
-  };
-}
-
-
-
-
-// --------------------
-// Debug: policy
-// --------------------
+/**
+ * --------------------
+ * Debug: policy
+ * --------------------
+ */
 server.get(
   "/debug/policy/refund/:plan/:amount",
   async (req: FastifyRequest<{ Params: { plan: string; amount: string } }>) => {
@@ -316,14 +493,11 @@ server.get(
   }
 );
 
-// --------------------
-// Debug: handoff queue
-// --------------------
-// Supports:
-//   GET /debug/handoffs
-//   GET /debug/handoffs?status=pending|claimed|resolved
-//   GET /debug/handoffs?id=<handoffId>
-//   GET /debug/handoffs?status=pending&id=<handoffId>
+/**
+ * --------------------
+ * Debug: handoff queue
+ * --------------------
+ */
 server.get(
   "/debug/handoffs",
   async (
@@ -354,15 +528,14 @@ server.get(
         confidence: h.confidence,
         status: h.status,
 
-        // 7.4 workflow fields
         claimedBy: h.claimedBy ?? null,
         claimedAt: h.claimedAt ?? null,
         resolvedBy: h.resolvedBy ?? null,
         resolvedAt: h.resolvedAt ?? null,
         resolutionNotes: h.resolutionNotes ?? null,
 
-        issues: h.issuesJson ? JSON.parse(h.issuesJson) : [],
-        actions: h.actionsJson ? JSON.parse(h.actionsJson) : [],
+        issues: h.issuesJson ? safeParseJson<any[]>(h.issuesJson) ?? [] : [],
+        actions: h.actionsJson ? safeParseJson<any[]>(h.actionsJson) ?? [] : [],
         createdAt: h.createdAt,
         updatedAt: h.updatedAt
       }))
@@ -370,170 +543,80 @@ server.get(
   }
 );
 
-// --------------------
-// 7.4: Get a single handoff (human agent inspection)
-// --------------------
-// GET /handoffs/:id
+/**
+ * --------------------
+ * Debug: DB interactions
+ * --------------------
+ */
 server.get(
-  "/handoffs/:id",
-  async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
-    const { id } = req.params;
-
-    const h = await prisma.handoff.findUnique({ where: { id } });
-    if (!h) return reply.code(404).send({ error: "Handoff not found" });
-
-    return reply.send({
-      id: h.id,
-      customerId: h.customerId,
-      ticketId: h.ticketId,
-      reason: h.reason,
-      priority: h.priority,
-      mode: h.mode,
-      confidence: h.confidence,
-      status: h.status,
-
-      claimedBy: h.claimedBy ?? null,
-      claimedAt: h.claimedAt ?? null,
-      resolvedBy: h.resolvedBy ?? null,
-      resolvedAt: h.resolvedAt ?? null,
-      resolutionNotes: h.resolutionNotes ?? null,
-
-      issues: h.issuesJson ? JSON.parse(h.issuesJson) : [],
-      actions: h.actionsJson ? JSON.parse(h.actionsJson) : [],
-      createdAt: h.createdAt,
-      updatedAt: h.updatedAt,
-      slaDueAt: h.slaDueAt ?? null,
-slaBreachedAt: h.slaBreachedAt ?? null,
+  "/debug/interactions/:customerId",
+  async (req: FastifyRequest<{ Params: { customerId: string } }>) => {
+    return prisma.interaction.findMany({
+      where: { customerId: req.params.customerId },
+      orderBy: { createdAt: "desc" },
+      take: 20
     });
   }
 );
 
-// --------------------
-// 7.4: Claim a handoff (atomic)
-// --------------------
-// POST /handoffs/:id/claim
-// Header: x-agent-id: <string>
-server.post(
-  "/handoffs/:id/claim",
-  async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
-    const { id } = req.params;
-    const agentId = String(req.headers["x-agent-id"] || "").trim();
+/**
+ * --------------------
+ * Debug: outbox
+ * --------------------
+ */
+server.get(
+  "/debug/outbox",
+  async (req: FastifyRequest<{ Querystring: { status?: string } }>, reply) => {
+    const status = req.query?.status?.trim();
 
-    if (!agentId) {
-      return reply.code(400).send({ error: "Missing x-agent-id header" });
-    }
-
-    // Atomic claim: only succeeds if still pending and unclaimed
-    const result = await prisma.handoff.updateMany({
-      where: {
-        id,
-        status: "pending",
-        claimedAt: null
-      },
-      data: {
-        status: "claimed",
-        claimedBy: agentId,
-        claimedAt: new Date()
-      }
+    const rows = await prisma.outboxEvent.findMany({
+      ...(status ? { where: { status } } : {}),
+      orderBy: { createdAt: "desc" },
+      take: 50
     });
 
-    if (result.count === 0) {
-      return reply.code(409).send({
-        error: "Handoff already claimed or not pending"
-      });
-    }
-
-    const updated = await prisma.handoff.findUnique({ where: { id } });
-    return reply.send(updated);
+    return reply.send(
+      rows.map((e) => ({
+        id: e.id,
+        type: e.type,
+        status: e.status,
+        attempts: e.attempts,
+        nextAttemptAt: e.nextAttemptAt,
+        lastError: e.lastError,
+        idempotencyKey: e.idempotencyKey,
+        createdAt: e.createdAt,
+        updatedAt: e.updatedAt
+      }))
+    );
   }
 );
 
-// --------------------
-// 7.4: Resolve a handoff (must be claimed + ownership enforced)
-// --------------------
-// POST /handoffs/:id/resolve
-// Header: x-agent-id: <string>
-// Body: { "resolutionNotes": "..." }
 server.post(
-  "/handoffs/:id/resolve",
-  async (
-    req: FastifyRequest<{
-      Params: { id: string };
-      Body: { resolutionNotes?: string };
-    }>,
-    reply
-  ) => {
-    const { id } = req.params;
-    const agentId = String(req.headers["x-agent-id"] || "").trim();
-    const resolutionNotes = req.body?.resolutionNotes?.trim() || null;
-
-    if (!agentId) {
-      return reply.code(400).send({ error: "Missing x-agent-id header" });
-    }
-
-    const h = await prisma.handoff.findUnique({ where: { id } });
-    if (!h) return reply.code(404).send({ error: "Handoff not found" });
-
-    // Better error messaging (polish)
-    if (h.status === "resolved") {
-      return reply.code(409).send({ error: "Handoff already resolved" });
-    }
-
-    if (h.status !== "claimed" || !h.claimedAt || !h.claimedBy) {
-      return reply.code(409).send({
-        error: "Handoff must be claimed before resolving"
-      });
-    }
-
-    if (h.claimedBy !== agentId) {
-      return reply.code(409).send({
-        error: "Only the claiming agent can resolve"
-      });
-    }
-
+  "/debug/handoffs/:id/force-sla-breach",
+  async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+    const past = new Date(Date.now() - 60_000);
     const updated = await prisma.handoff.update({
-      where: { id },
-      data: {
-        status: "resolved",
-        resolvedBy: agentId,
-        resolvedAt: new Date(),
-        resolutionNotes
-      }
+      where: { id: req.params.id },
+      data: { slaDueAt: past }
     });
-
-    if (updated.ticketId) {
-  await prisma.ticket.updateMany({
-    where: { id: updated.ticketId, status: { not: "resolved" } },
-    data: { status: "resolved" }
-  });
-}
-
-    return reply.send(updated);
+    return reply.send({ ok: true, id: updated.id, slaDueAt: updated.slaDueAt });
   }
 );
 
-
-
-// --------------------
-// 7.8: Metrics (ops dashboard)
-// --------------------
-// GET /metrics  -> JSON
-// GET /metrics/dashboard -> tiny HTML view
-
+/**
+ * --------------------
+ * Metrics (ops dashboard)
+ * --------------------
+ */
 server.get("/metrics", async (req, reply) => {
-  // Tune these without schema changes
   const N = 50;
 
-  // --- Handoff counts by status ---
   const [pendingCount, claimedCount, resolvedCount] = await Promise.all([
     prisma.handoff.count({ where: { status: "pending" } }),
     prisma.handoff.count({ where: { status: "claimed" } }),
     prisma.handoff.count({ where: { status: "resolved" } })
   ]);
 
-  // --- Average resolution time (seconds) for resolved handoffs ---
-  // Prisma can't "avg(resolvedAt - claimedAt)" directly in SQLite easily,
-  // so we compute it in code from recent resolved handoffs.
   const recentResolved = await prisma.handoff.findMany({
     where: { status: "resolved" },
     orderBy: { resolvedAt: "desc" },
@@ -553,25 +636,16 @@ server.get("/metrics", async (req, reply) => {
       ? resolutionSeconds.reduce((a, b) => a + b, 0) / resolutionSeconds.length
       : null;
 
-  // --- Interaction counts (for rates) ---
   const totalInteractions = await prisma.interaction.count();
-
-  // Replay count = interactions that include "idempotency_replay" in actionsJson
-  // (works with your current design; no schema change needed)
   const replayInteractions = await prisma.interaction.count({
     where: { actionsJson: { contains: "idempotency_replay" } }
   });
 
-  // Escalation proxy = number of handoffs created (each handoff corresponds to an escalation path)
   const totalHandoffs = await prisma.handoff.count();
 
-  const replayRate =
-    totalInteractions > 0 ? replayInteractions / totalInteractions : 0;
+  const replayRate = totalInteractions > 0 ? replayInteractions / totalInteractions : 0;
+  const escalationRate = totalInteractions > 0 ? totalHandoffs / totalInteractions : 0;
 
-  const escalationRate =
-    totalInteractions > 0 ? totalHandoffs / totalInteractions : 0;
-
-  // --- Confidence drift (last N vs previous N) ---
   const lastN = await prisma.interaction.findMany({
     orderBy: { createdAt: "desc" },
     take: N,
@@ -624,7 +698,6 @@ server.get("/metrics", async (req, reply) => {
 });
 
 server.get("/metrics/dashboard", async (req, reply) => {
-  // Very small HTML dashboard (no framework) pulling /metrics
   const html = `<!doctype html>
 <html>
   <head>
@@ -638,7 +711,6 @@ server.get("/metrics/dashboard", async (req, reply) => {
       .v { font-size: 24px; font-weight: 650; margin-top: 6px; }
       .small { font-size: 14px; color: #333; margin-top: 6px; }
       .muted { color: #666; }
-      .row { display:flex; justify-content: space-between; gap: 10px; margin-top: 6px; }
       code { background: #f6f6f6; padding: 2px 6px; border-radius: 6px; }
       button { padding: 8px 10px; border-radius: 10px; border: 1px solid #ddd; background: white; cursor: pointer; }
     </style>
@@ -727,76 +799,16 @@ server.get("/metrics/dashboard", async (req, reply) => {
   return reply.send(html);
 });
 
-
-// --------------------
-// Debug: DB interactions
-// --------------------
-server.get(
-  "/debug/interactions/:customerId",
-  async (req: FastifyRequest<{ Params: { customerId: string } }>) => {
-    return prisma.interaction.findMany({
-      where: { customerId: req.params.customerId },
-      orderBy: { createdAt: "desc" },
-      take: 20
-    });
-  }
-);
-
-
-// --------------------
-// Debug: outbox
-// --------------------
-// GET /debug/outbox
-// GET /debug/outbox?status=pending|processing|failed|dead|sent
-server.get(
-  "/debug/outbox",
-  async (
-    req: FastifyRequest<{ Querystring: { status?: string } }>,
-    reply
-  ) => {
-    const status = req.query?.status?.trim();
-
-    const rows = await prisma.outboxEvent.findMany({
-      ...(status ? { where: { status } } : {}),
-      orderBy: { createdAt: "desc" },
-      take: 50
-    });
-
-    return reply.send(
-      rows.map((e) => ({
-        id: e.id,
-        type: e.type,
-        status: e.status,
-        attempts: e.attempts,
-        nextAttemptAt: e.nextAttemptAt,
-        lastError: e.lastError,
-        idempotencyKey: e.idempotencyKey,
-        createdAt: e.createdAt,
-        updatedAt: e.updatedAt
-      }))
-    );
-  }
-);
-
-server.post(
-  "/debug/handoffs/:id/force-sla-breach",
-  async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
-    const past = new Date(Date.now() - 60_000); // 1 min ago
-    const updated = await prisma.handoff.update({
-      where: { id: req.params.id },
-      data: { slaDueAt: past }
-    });
-    return reply.send({ ok: true, id: updated.id, slaDueAt: updated.slaDueAt });
-  }
-);
-
+/**
+ * --------------------
+ * Audit export
+ * --------------------
+ */
 
 // JSON
 server.get(
   "/audit/export.json",
-  async (
-    req: FastifyRequest<{ Querystring: { customerId?: string; ticketId?: string } }>
-  ) => {
+  async (req: FastifyRequest<{ Querystring: { customerId?: string; ticketId?: string } }>) => {
     const customerId = req.query.customerId?.trim();
     const ticketId = req.query.ticketId?.trim();
 
@@ -804,7 +816,7 @@ server.get(
     if (customerId) params.customerId = customerId;
     if (ticketId) params.ticketId = ticketId;
 
-    return buildAuditBundle(params); // ✅ THIS is the fix
+    return buildAuditBundle(params);
   }
 );
 
@@ -816,14 +828,13 @@ server.get(
     reply
   ) => {
     const customerId = req.query.customerId?.trim();
-const ticketId = req.query.ticketId?.trim();
+    const ticketId = req.query.ticketId?.trim();
 
-const params: { customerId?: string; ticketId?: string } = {};
-if (customerId) params.customerId = customerId;
-if (ticketId) params.ticketId = ticketId;
+    const params: { customerId?: string; ticketId?: string } = {};
+    if (customerId) params.customerId = customerId;
+    if (ticketId) params.ticketId = ticketId;
 
-const bundle = await buildAuditBundle(params);
-
+    const bundle = await buildAuditBundle(params);
     const rows = flattenAuditToRows(bundle);
     const csv = toCsv(rows);
 
@@ -836,17 +847,14 @@ const bundle = await buildAuditBundle(params);
   }
 );
 
-
-
-// --------------------
-// Main: chat channel
-// --------------------
-server.post(
-  "/chat",
-  async (req: FastifyRequest<{ Body: ChatRequest }>) => {
-    return runFlowOpsAgent(req.body);
-  }
-);
+/**
+ * --------------------
+ * Main: chat channel
+ * --------------------
+ */
+server.post("/chat", async (req: FastifyRequest<{ Body: ChatRequest }>) => {
+  return runFlowOpsAgent(req.body);
+});
 
 const start = async () => {
   try {

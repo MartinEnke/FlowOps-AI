@@ -72,7 +72,7 @@ model Handoff {
   actionsJson   String?
   slaDueAt      DateTime?
   slaBreachedAt DateTime?
-  aiArtifacts   AiArtifact[]
+  aiartifacts   AiArtifact[]
 
   claimedBy       String?
   claimedAt       DateTime?

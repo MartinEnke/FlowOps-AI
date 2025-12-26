@@ -1,23 +1,68 @@
-# AI-Assisted Operations Console
+# AI‑Assisted Operations Console (Admin UI)
 
-The **AI-Assisted Operations Console** is the internal operator interface for the AI-Assisted Operations Platform.
+The **AI‑Assisted Operations Console** is the internal operator interface for the **FlowOps AI Platform**.
 
-It provides a **human-in-the-loop operations UI** for inspecting handoffs, reviewing AI-generated artifacts, and performing controlled, accountable actions.
+It provides a **human‑in‑the‑loop operations UI** for reviewing escalated cases (“handoffs”), inspecting AI‑generated artifacts, and performing **explicit, accountable operator actions**.
 
-The console is intentionally designed as a **decision-support system**, not an autonomous agent interface.
+This UI is intentionally designed as a **decision‑support system**, not an autonomous agent interface or chatbot frontend.
 
 ---
 
-## Purpose
+## Purpose & Scope
 
-The admin UI exists to give operators:
+The admin console exists to give operators and supervisors:
 
 - Full visibility into active and historical handoffs
-- Transparent access to all AI-generated artifacts
+- Transparent access to all AI‑generated artifacts
 - Explicit control over claiming, escalation, and resolution
 - A safe interface to *request* AI assistance without delegating authority
 
-AI outputs are **assistive and review-only by default**.
+AI outputs are **assistive and review‑only by default**.  
+Nothing is applied automatically without a human decision.
+
+---
+
+## Core Concepts
+
+### Handoffs
+
+A **handoff** represents a customer case that has entered a higher‑risk or escalation path.
+
+Each handoff includes:
+
+- Status (`pending`, `claimed`, `resolved`)
+- Priority
+- Escalation reason
+- SLA deadline & breach state
+- Links to tickets, customers, and audit trails
+
+The UI treats handoffs as **operational units**, not chat threads.
+
+---
+
+### AI Artifacts
+
+The backend may attach **versioned AI artifacts** to a handoff.  
+These artifacts are:
+
+- Generated asynchronously
+- Persisted in the database
+- Read‑only in the UI
+- Fully auditable
+- Never auto‑applied
+
+Common artifact types include:
+
+- `handoff_summary.v1`  
+  A concise, structured briefing to orient operators quickly.
+
+- `risk_assessment.v1`  
+  A non‑authoritative risk signal highlighting attention flags, SLA pressure, or escalation patterns.
+
+- `reply_draft.v1`  
+  A customer‑facing response suggestion intended for review, editing, or rejection.
+
+Artifacts are shown **exactly as produced**, with timestamps and raw JSON available for inspection.
 
 ---
 
@@ -25,56 +70,61 @@ AI outputs are **assistive and review-only by default**.
 
 ### Handoff Overview
 
-Operators can:
+The main overview page allows operators to:
 
-- View all active handoffs
-- Inspect status, priority, reason, and SLA state
-- Navigate into individual handoff detail views
+- View all handoffs (active & historical)
+- Filter by:
+  - Status
+  - Priority
+  - Risk level (AI‑assisted)
+  - Presence of AI artifacts
+- Sort by risk, SLA pressure, or recency
+- Navigate into individual handoff detail pages
 
-This view supports fast triage and workload awareness without hiding system state.
+This view is optimized for **fast triage without hiding system state**.
 
 ---
 
 ### Handoff Detail View
 
-For each handoff, operators can inspect:
+Each handoff has a dedicated detail page containing:
 
-#### Core Handoff Metadata
-- Status and priority
-- Escalation reason
-- SLA due / breached state
+#### Core Metadata
 
-#### AI Artifacts (read-only)
+- Status, priority, and escalation reason
+- SLA due timestamp and breach indicator
+- Ticket and customer references
 
-The system may attach structured AI artifacts such as:
+#### AI Artifacts (Read‑Only)
 
-- `handoff_summary.v1` — contextual briefing for operators
-- `risk_assessment.v1` — non-authoritative risk signals and attention flags
-- `reply_draft.v1` — editable, customer-facing response drafts
+Each artifact section shows:
 
-All artifacts are:
+- Last update timestamp
+- Structured content rendered for readability
+- Optional raw JSON view for audit/debugging
 
-- Versioned
-- Timestamped
-- Persisted
-- Fully auditable
-- Never auto-applied
+Artifacts never overwrite or mask operator decisions.
 
 ---
 
-### Explicit AI Triggers
+### Explicit Operator Actions
 
-Operators may manually request AI assistance via explicit actions:
+Operators can perform **explicit, guarded actions**:
 
-| Action | Description |
-|------|------------|
-| **Draft Reply** | Generates a customer-facing reply suggestion |
-| **Run Risk Check** | Produces a structured, non-authoritative risk assessment |
-| **Assign to Me** | Claims the handoff for manual handling |
+| Action | Behavior |
+|------|---------|
+| **Draft Reply** | Enqueues an async request to generate a reply suggestion |
+| **Run Risk Check** | Enqueues a non‑authoritative risk assessment |
+| **Assign to Me** | Claims the handoff for the current operator |
 | **Mark Resolved** | Resolves the handoff with a human decision |
 
-All AI actions enqueue **asynchronous outbox events** handled by the backend.  
-If AI fails, the handoff remains fully operable.
+Important notes:
+
+- AI actions enqueue **outbox events** handled asynchronously by the backend
+- “Draft Reply” and “Run Risk Check” may already exist if generated earlier
+- Backend may respond with **409 conflicts** (e.g. already claimed / already resolved) — these are **intentional safety guards**, not errors
+
+The UI surfaces backend responses verbatim to preserve operational transparency.
 
 ---
 
@@ -84,13 +134,16 @@ If AI fails, the handoff remains fully operable.
   AI informs decisions — humans make them.
 
 - **No hidden automation**  
-  Every AI action is explicitly triggered and visible.
+  Every AI action is explicitly triggered and observable.
+
+- **Failure‑safe by design**  
+  AI outages never block core workflows.
 
 - **Strict separation of concerns**  
-  The UI never executes business logic or policy.
+  The UI never executes business logic or policy decisions.
 
-- **Failure-safe by design**  
-  AI errors never block operators or core workflows.
+- **Auditability over convenience**  
+  Visibility and traceability are preferred over automation.
 
 ---
 
@@ -99,40 +152,48 @@ If AI fails, the handoff remains fully operable.
 - **Next.js (App Router)**
 - **TypeScript**
 - **Tailwind CSS**
-- Server Components + Server Actions
-- Backend communication via typed REST endpoints
+- Server Components & Server Actions
+- Typed REST communication with backend API
+
+The UI is intentionally thin and stateless, delegating all policy and persistence to the backend.
 
 ---
 
 ## Running the Admin Console
 
 ### Prerequisites
-- Node.js 18+
-- AI-Assisted Operations backend running locally
 
-### Install
+- Node.js 18+
+- FlowOps AI backend running locally
+
+### Installation
+
 ```bash
 npm install
 ```
 
-### Environment
+### Environment Configuration
+
 Create `.env.local`:
 
 ```env
 NEXT_PUBLIC_API_BASE=http://localhost:3000
+NEXT_PUBLIC_OPERATOR_TOKEN=operator-token
 ```
 
-### Run
+### Run (recommended port)
+
 ```bash
-npm run dev
+npm run dev -- -p 3001
 ```
 
-The UI will be available at:
+The admin console will be available at:
+
 ```
 http://localhost:3001
 ```
 
-> Tip: Keep backend and admin UI on separate ports to avoid conflicts.
+> ⚠️ Keep backend and admin UI on separate ports to avoid conflicts.
 
 ---
 
@@ -143,7 +204,7 @@ src/
   app/
     page.tsx                → Redirects to /handoffs
     handoffs/
-      page.tsx              → Handoff list
+      page.tsx              → Handoff list view
       [id]/
         page.tsx            → Handoff detail view
   lib/
@@ -152,33 +213,49 @@ src/
 
 ---
 
-## What’s Next
+## Common Behaviors & Gotchas
 
-Planned improvements (in order):
+- **409 responses are expected**
+  - Already claimed
+  - Already resolved
+  - Invalid state transitions
 
-1. **UI state refinements**
-   - Improved loading and empty states
-   - Better contrast and readability
-   - Long-text wrapping and truncation controls
+- **Draft / Risk buttons may appear “instant”**
+  - Artifacts may already exist from prior runs
+  - Backend is idempotent by design
 
-2. **Operator ergonomics**
-   - Inline artifact diffing
-   - Copy-to-clipboard helpers
+- **UI does not retry AI automatically**
+  - Operators remain in control of retries
+
+---
+
+## Roadmap
+
+Planned improvements:
+
+1. **UI ergonomics**
+   - Improved loading & empty states
    - Collapsible artifact sections
+   - Better long‑text handling
 
-3. **Risk-aware prioritization**
-   - Sorting by risk level
-   - SLA pressure highlighting
-   - Attention-based operator queues
+2. **Operator tooling**
+   - Copy‑to‑clipboard helpers
+   - Artifact diffing
+   - Inline annotations
+
+3. **Risk‑aware workflows**
+   - Risk‑weighted queues
+   - SLA pressure indicators
+   - Escalation heatmaps
 
 4. **Authentication & roles**
-   - Operator login
-   - Read-only vs. action-capable roles
+   - Login flows
+   - Read‑only vs action‑capable users
 
 5. **Production hardening**
    - Error boundaries
    - Audit banners
-   - Environment-safe configuration
+   - Environment‑safe configuration
 
 ---
 
@@ -186,9 +263,9 @@ Planned improvements (in order):
 
 This UI is **not a chatbot frontend**.
 
-It is an **operations console** for humans supervising AI-assisted workflows in environments where trust, accountability, and safety matter.
+It is an **operations console** for humans supervising AI‑assisted workflows in environments where **trust, accountability, and safety matter**.
 
-> Trust is built through visibility, not automation.
+> Trust is built through visibility — not automation.
 
 ---
 
@@ -197,6 +274,7 @@ It is an **operations console** for humans supervising AI-assisted workflows in 
 **Martin Enke**
 
 This project explores how AI systems can be built to be:
+
 - transparent  
 - constrained  
 - auditable  

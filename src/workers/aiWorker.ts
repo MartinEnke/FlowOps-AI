@@ -19,6 +19,14 @@ import {
   buildRiskAssessmentPrompt
 } from "../ai/prompts/riskAssessment";
 
+import {
+  RESOLUTION_SUGGESTION_SCHEMA,
+  buildResolutionSuggestionPrompt
+} from "../ai/contracts/resolutionSuggestion";
+
+
+
+
 // -----------------------------
 // Shared helper (keeps things DRY)
 // -----------------------------
@@ -194,6 +202,58 @@ export async function handleAiRiskAssessmentGenerate(handoffId: string) {
       input: bundle,
       output: {
         version: "risk_assessment.v1",
+        generatedAt: new Date().toISOString(),
+        handoffId,
+        error: String(err?.message ?? err)
+      }
+    });
+
+    throw err;
+  }
+}
+
+// -----------------------------
+// 4) RESOLUTION SUGGESTION (HUMAN APPROVAL)
+// -----------------------------
+export async function handleAiResolutionSuggestionGenerate(handoffId: string) {
+  const bundle = await buildHandoffContextBundle(handoffId);
+
+  try {
+    const { system, user } = buildResolutionSuggestionPrompt(bundle);
+
+    const llmJson = await generateStructuredJson({
+      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      system,
+      user,
+      schemaName: "resolution_suggestion_v1",
+      schema: RESOLUTION_SUGGESTION_SCHEMA,
+      timeoutMs: 20_000
+    });
+
+    const artifact = {
+      ...llmJson,
+      version: "resolution_suggestion.v1" as const,
+      handoffId,
+      generatedAt: new Date().toISOString()
+    };
+
+    await persistArtifact({
+      handoffId,
+      type: "resolution_suggestion.v1",
+      status: "ok",
+      input: bundle,
+      output: artifact
+    });
+
+    console.log(`🧭 [AI] wrote resolution_suggestion.v1 for handoffId=${handoffId}`);
+  } catch (err: any) {
+    await persistArtifact({
+      handoffId,
+      type: "resolution_suggestion.v1",
+      status: "failed",
+      input: bundle,
+      output: {
+        version: "resolution_suggestion.v1",
         generatedAt: new Date().toISOString(),
         handoffId,
         error: String(err?.message ?? err)

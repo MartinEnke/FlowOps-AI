@@ -1,399 +1,266 @@
-# AI-Assisted Operations Console
-**Structured AI assistance for high-stakes operational workflows**
+# AI-Assisted Operations Console (FlowOps AI)
 
-![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)
-![Fastify](https://img.shields.io/badge/Fastify-Production--Ready-black)
-![Prisma](https://img.shields.io/badge/Prisma-7.x-2D3748)
-![SQLite](https://img.shields.io/badge/Database-SQLite-blue)
-![Architecture](https://img.shields.io/badge/Architecture-Agentic%20Systems-success)
-![Status](https://img.shields.io/badge/Status-Production--Grade-brightgreen)
-
-**A Production-Grade Customer Engagement Agent Platform**  
-_TypeScript · Agentic Workflows · Policy · Verification · Human-in-the-Loop · Reliability Engineering_
+Structured, **production-grade AI assistance** for high-stakes operational workflows.
 
 ---
 
-## Overview
+## What this is (short version)
 
-**AI-Assisted Operations Console** is a production-grade, human-in-the-loop platform for handling complex operational cases where automation alone is unsafe or inappropriate.
+FlowOps AI is **not** a chatbot demo and **not** an autonomous agent.
 
-The system is designed for scenarios such as escalated customer support, trust & safety reviews, compliance-sensitive workflows, and other high-risk operations where **AI must assist humans — not replace them**.
+It is a **human-in-the-loop operations platform** that shows how AI should be integrated into real systems:
+- safely
+- deterministically
+- auditable
+- and without removing human accountability
 
-Instead of deploying autonomous agents, the platform introduces **governed AI assistance** through structured, auditable artifacts that support human decision-making while preserving accountability.
-
----
-
-## Design Philosophy
-
-This project intentionally does **not** focus on chatbot-style prompt engineering or end-to-end automation.
-
-Instead, it demonstrates how AI-powered systems should be built **before** large language models are allowed to influence real-world outcomes.
-
-The platform prioritizes:
-
-- **Deterministic execution**  
-  Core workflows and state transitions remain predictable and testable.
-
-- **Safety guarantees**  
-  AI outputs can inform decisions but can never execute them autonomously.
-
-- **Failure isolation**  
-  AI runs asynchronously with explicit success/failure handling.
-
-- **Auditability**  
-  All AI outputs are versioned, typed, and persisted as immutable artifacts.
-
-- **Human oversight**  
-  Operators explicitly claim ownership and resolve cases.
-
-- **Operational resilience**  
-  Long-running and unreliable tasks are handled via outbox and worker patterns.
-
-> **AI is assistive — never authoritative.**
+AI generates *assistive artifacts* (summaries, drafts, risk signals).  
+Humans **own**, **approve**, and **resolve** every case.
 
 ---
 
-## What the System Does
+## Why this project exists
 
-The platform manages **handoffs** — cases that require human review due to low confidence, escalation, or policy constraints.
+Most “AI agent” demos:
+- directly execute tools
+- skip verification
+- lack idempotency
+- have no audit trail
+- break under retries
+- cannot explain failures
 
-For each handoff, AI can generate structured artifacts such as:
+**FlowOps AI demonstrates the opposite.**
 
-- **Case summaries** to reduce cognitive load
-- **Risk assessments** to highlight uncertainty and SLA pressure
-- **Reply drafts** to accelerate communication while remaining editable
+It models how serious SaaS, fintech, trust & safety, and enterprise systems integrate LLMs *without* surrendering control.
 
-Operators interact with these artifacts through an internal **operations console**, where they can:
-
-- triage by priority and risk
-- explicitly claim ownership
-- review AI outputs
-- make final resolution decisions
-
-At no point can AI resolve a case on its own.
+> AI assists decisions.  
+> Humans remain responsible.
 
 ---
 
-## Why This Matters
+## Core Concepts
 
-In many real-world systems, AI failures are dangerous not because models are inaccurate — but because **control, accountability, and observability are missing**.
+### 1. Human Handoffs
 
-This project demonstrates a safer alternative:
+A **handoff** represents a case that:
+- exceeded confidence thresholds
+- hit a policy boundary
+- escalated
+- or approached an SLA breach
 
-> AI as a structured, inspectable assistant embedded into reliable operational workflows.
+Handoffs **must** be reviewed by a human operator.
 
-It reflects patterns used in production environments where trust, compliance, and human responsibility are non-negotiable.
-
----
-
-## Why This Project Exists
-
-Most AI agent demos:
-- Execute tools directly
-- Assume success paths
-- Lack audit trails
-- Cannot safely retry
-- Risk duplicate side-effects
-
-**FlowOps AI exists to demonstrate the opposite.**
-
-It mirrors how **real SaaS platforms deploy AI-assisted workflows in production**, where trust, reliability, and control matter more than novelty.
+Each handoff has:
+- status (pending → claimed → resolved)
+- priority
+- SLA deadline
+- audit trail
+- optional AI artifacts
 
 ---
 
-## Key Capabilities
+### 2. AI Artifacts (Assistive Only)
 
-- Deterministic policy engine
-- Verification layer (anti-hallucination)
-- Human-in-the-loop escalation
-- SLA timers & auto-breach detection
-- Outbox pattern with retries & dead-letter
-- Idempotency & replay protection
-- Immutable audit trails
-- Versioned AI artifacts
-- Ops metrics & observability
+AI never changes state directly.
 
----
+Instead, it produces **versioned artifacts**:
 
-## High-Level Architecture
+| Artifact | Purpose |
+|--------|--------|
+| Handoff Summary | Reduce operator cognitive load |
+| Risk Assessment | Highlight uncertainty & urgency |
+| Reply Draft | Speed up communication (human approval required) |
 
-```
-Client
-  ↓
-Fastify API (/chat)
-  ↓
-FlowOps Agent Orchestrator
-  ├─ Policy Engine (deterministic)
-  ├─ Verification Layer
-  ├─ Tool Layer
-  ├─ Idempotency Guard
-  ├─ Human Handoff Queue
-  └─ Outbox Dispatcher
-  ↓
-SQLite (Prisma)
-```
+Artifacts are:
+- JSON-schema validated
+- versioned
+- persisted
+- reviewable
+- exportable
 
 ---
 
-## Core Production Concepts
-
-### Shadow vs Live Execution
-
-- **Shadow mode**
-  - Executes full logic
-  - No persistence
-  - Safe for testing and demos
-
-- **Live mode**
-  - Persists all side-effects
-  - Enforces idempotency
-  - Triggers background workers
-
----
-
-### Policy Engine (Deterministic)
+### 3. Deterministic Policy Engine
 
 Policies are **code**, not prompts.
 
 They decide:
-- Refund eligibility
-- Escalation thresholds
-- Priority assignment
-- Auto-approval limits
+- refund eligibility
+- escalation rules
+- priority
+- auto-approval limits
 
-This guarantees predictable behavior regardless of AI output.
+AI **cannot override policy**.
 
 ---
 
-### Verification Layer (Anti-Hallucination)
+### 4. Verification Layer (Anti-Hallucination)
 
 Before any side-effect:
-- Account data is checked
-- Billing state is validated
-- Tool outputs are verified
+- account data is verified
+- billing state is checked
+- tool outputs are validated
 
-Unsafe or inconsistent responses are **blocked and escalated automatically**.
-
----
-
-## Human Handoff System
-
-Each handoff includes:
-- Customer & ticket context
-- Reason & priority
-- Confidence score
-- Actions already taken
-- Verification issues
-- SLA timers
-
-Humans can:
-- Claim
-- Resolve
-- Annotate
-- Audit decisions
+Inconsistencies trigger **handoffs**, not silent failures.
 
 ---
 
-## Reliability Engineering
+### 5. Outbox Pattern (Reliability)
 
-### Outbox Pattern
-
-All side-effects (emails, notifications, AI jobs) are written to an **outbox table** and processed asynchronously.
+All async work goes through an **outbox table**:
+- AI jobs
+- emails
+- notifications
+- SLA alerts
 
 Guarantees:
-- No duplicate deliveries
-- Retry with backoff
-- Dead-letter isolation
-- Crash-safe recovery
-
-Email delivery is intentionally **stubbed**.  
-The outbox still demonstrates retry and dead-letter behavior accurately.
-
-Unknown events may be labeled as `UNHANDLED_EVENT_TYPE`.
+- idempotency
+- retries with backoff
+- crash safety
+- dead-letter isolation
 
 ---
 
-### Background Workers
+### 6. SLA Enforcement
 
-- **Outbox Worker**
-  - Processes pending events
-  - Retries failures
-  - Marks dead-letter events
-
-- **SLA Worker**
-  - Tracks handoff deadlines
-  - Auto-breaches overdue handoffs
-  - Emits escalation notifications
-
----
-
-### SLA Timers & Auto-Escalation
-
-Each handoff may include:
+Each handoff may define:
 - `slaDueAt`
 - `slaBreachedAt`
 
-When breached:
-- Status updates automatically
-- Escalation event is emitted
-- Full audit trail is preserved
+A background worker:
+- monitors deadlines
+- auto-marks breaches
+- emits escalation events
+- preserves auditability
 
 ---
 
-### Idempotency & Replay Protection
-
-Optional `requestId` guarantees:
-- Same request → same response
-- No duplicate tickets
-- No duplicate emails
-- No duplicate escalations
-
-Enforced via:
-- DB constraints
-- Interaction replay logic
-
----
-
-## AI Integration (Current State)
-
-FlowOps AI integrates large language models **as asynchronous, assistive subsystems** — never as authoritative decision-makers.  
-All AI execution is isolated behind the outbox pattern and produces **versioned, auditable artifacts**.
-
-AI is treated as **infrastructure**, not intelligence: every output is optional, reviewable, and bounded by deterministic policy.
-
----
+## AI Capabilities (Current)
 
 ### AI Handoff Summary (v1)
 
-When a handoff is created, an async outbox event  
-`ai.handoff_summary.generate` is enqueued.
+Triggered automatically when a handoff is created.
 
-The AI worker:
-1. Builds a **strict, authoritative context bundle** from the database
-2. Generates a structured summary using an LLM (JSON schema enforced)
-3. Persists the result as a **versioned AI artifact** (`handoff_summary.v1`)
-4. Executes fully async — **never blocking** the core workflow
+Produces:
+- situation overview
+- key facts
+- risks & watch-outs
+- recommended next step
 
-The summary includes:
-- High-level situation overview
-- Key factual data points
-- Identified risks (e.g. SLA proximity)
-- Recommended human next step
-
-This artifact exists to **accelerate human understanding**, not to make decisions.
+Purpose: **fast human context loading**
 
 ---
 
-### AI Reply Drafting (v1 — Human Approval Required)
+### AI Reply Draft (v1)
 
-Operators may explicitly request an AI-generated **reply draft** for an active handoff.
+Triggered manually by operator:
 
-Trigger:
-```
+```http
 POST /handoffs/:id/ai/draft
 ```
 
-This enqueues the async event:
-```
-ai.reply_draft.generate
-```
+Produces:
+- customer-facing reply suggestion
+- grounded strictly in context
+- never auto-sent
 
-The AI worker:
-1. Reuses the same strict handoff context bundle
-2. Drafts a **customer-facing reply suggestion**
-3. Enforces schema validation, tone constraints, and factual grounding
-4. Persists output as a versioned artifact (`reply_draft.v1`)
-
-Key properties:
-- Drafts are **never auto-sent**
-- Content may only reference facts present in context
-- Uncertainty must be expressed explicitly (“I will confirm…”)
-- Human approval is always required before sending
-
-This establishes a true **human-in-the-loop communication workflow**.
+Rules enforced:
+- no invented facts
+- uncertainty must be explicit
+- human approval required
 
 ---
 
-### AI Risk Assessment (v1 — Non-Authoritative)
+### AI Risk Assessment (v1)
 
-Operators may explicitly request an AI-assisted **risk assessment** for a handoff.
+Triggered manually by operator:
 
-Trigger:
-```
+```http
 POST /handoffs/:id/ai/risk
 ```
 
-This enqueues the async event:
-```
-ai.risk_assessment.generate
-```
+Produces:
+- risk level (low / medium / high)
+- plain-language reasoning
+- attention flags
 
-The AI worker:
-1. Evaluates the full handoff context (SLA state, escalation history, confidence, policy outcome)
-2. Produces a **non-authoritative risk signal** for human operators
-3. Persists output as a versioned artifact (`risk_assessment.v1`)
-
-The risk assessment includes:
-- Overall risk level (`low`, `medium`, `high`)
-- Plain-language reasoning for the assessment
-- Attention flags (e.g. SLA pressure, repeat escalation, missing information)
-
-Key guarantees:
-- Risk scores **never block or trigger actions**
-- They do **not override policy**
-- They exist solely to **guide human attention and prioritization**
+Risk scores:
+- do NOT block actions
+- do NOT trigger side-effects
+- only guide prioritization
 
 ---
 
-## Where AI Fits (Intentionally Limited)
-
-AI may assist with:
-- Handoff summarization
-- Drafting suggested replies
-- Risk assessment & prioritization
-- Pattern detection & signal amplification
-- Operator decision support
+## What AI Will *Never* Do
 
 AI will **never**:
-- Execute side-effects
-- Override policy decisions
-- Approve refunds or financial actions
-- Bypass verification layers
-
-All authority remains deterministic.
-
----
-
-## Correct Next Steps (In Order)
-
-1. ✅ LLM-backed handoff summaries (complete)
-2. ✅ AI-assisted reply drafting (human approval required)
-3. ✅ AI risk assessment & prioritization (non-authoritative)
-4. Operator admin UI (React / Next.js) — **in progress**
-5. Risk-aware UI prioritization (badges, sorting, filtering)
-6. AI-assisted resolution suggestions (still human-approved)
-7. Historical risk & outcome analytics
-8. Permissioned role-based operator actions
+- approve refunds
+- send emails
+- close cases
+- override policy
+- bypass verification
+- mutate system state
 
 ---
 
-## Ops & Observability
+## Backend Architecture
 
-Metrics tracked:
-- Escalation rate
-- SLA breaches
-- Idempotency replays
-- Handoff backlog size
-- Resolution time distribution
-- Risk-level distribution over time
+```
+Fastify API
+  ├─ Auth & RBAC
+  ├─ Policy Engine
+  ├─ Verification Layer
+  ├─ Handoff Management
+  ├─ Outbox Dispatcher
+  └─ Metrics & Audit
+        ↓
+     SQLite (Prisma)
+        ↓
+ Outbox Worker(s)
+```
 
-Endpoints:
+---
+
+## Frontend (flowops-admin)
+
+The admin UI is a **Next.js internal console** for operators.
+
+Capabilities:
+- filter & sort cases
+- inspect AI artifacts
+- claim ownership
+- resolve cases
+- view SLA status
+- audit decisions
+
+Buttons behave intentionally:
+
+| Action | Behavior |
+|------|---------|
+| Draft Reply | Triggers async AI job |
+| Run Risk Check | Triggers async AI job |
+| Assign to Me | Claims handoff (409 if invalid) |
+| Mark Resolved | Resolves handoff (409 if already resolved) |
+
+409 responses are **expected safety guards**, not errors.
+
+---
+
+## Metrics & Observability
+
+Available endpoints:
 ```
 GET /metrics
 GET /metrics/dashboard
 ```
 
-All AI artifacts are fully auditable and exportable.
+Tracked signals:
+- SLA breaches
+- handoff backlog
+- resolution time
+- AI artifact generation
+- retry counts
+- dead-letter events
 
 ---
 
@@ -403,48 +270,49 @@ All AI artifacts are fully auditable and exportable.
 - Node.js 18+
 - npm
 - SQLite
-- Prisma CLI
+- Prisma
 
-### Installation
-
+### Install
 ```bash
-git clone https://github.com/your-username/flowops-ai.git
-cd flowops-ai
 npm install
 ```
 
-### Database Setup
-
+### Database
 ```bash
 npx prisma generate
 npx prisma migrate dev
 ```
 
-### Run Services
-
+### Run backend
 ```bash
 npm run dev
 npm run dev:outbox-worker
 npm run dev:sla-worker
 ```
 
+### Run frontend
+```bash
+cd flowops-admin
+npm run dev
+```
+
 ---
 
-## Current State
+## Project Status
 
-✔ Agent orchestration  
-✔ Deterministic policy enforcement  
+✔ Deterministic policy engine  
 ✔ Verification layer  
-✔ Human-in-the-loop workflows  
-✔ Outbox pattern with retries  
+✔ Human handoff system  
 ✔ SLA enforcement  
-✔ Versioned AI artifacts  
-✔ AI risk assessment (non-authoritative)  
-✔ Operator admin UI  
-✔ Audit export  
-✔ Ops metrics  
+✔ Outbox pattern  
+✔ AI summaries  
+✔ AI reply drafts  
+✔ AI risk assessment  
+✔ Admin UI  
+✔ Audit & export  
+✔ Metrics  
 
-This is a **platform**, not a demo.
+This is **infrastructure-grade AI**, not a demo.
 
 ---
 
@@ -452,4 +320,4 @@ This is a **platform**, not a demo.
 
 **Martin Enke**
 
-> AI agents should be trustworthy systems — not just clever outputs.
+> AI systems should be accountable systems — not clever shortcuts.

@@ -6,8 +6,10 @@ import { OUTBOX_EVENT_TYPES } from "../outbox/eventTypes";
 import {
   handleAiHandoffSummaryGenerate,
   handleAiReplyDraftGenerate,
-  handleAiRiskAssessmentGenerate
+  handleAiRiskAssessmentGenerate,
+  handleAiResolutionSuggestionGenerate
 } from "./aiWorker";
+
 
 // ----------------------------------
 // Startup diagnostics (intentional)
@@ -68,6 +70,18 @@ async function deliver(event: { type: string; payloadJson: string }) {
       await handleAiRiskAssessmentGenerate(payload.handoffId);
       return;
     }
+
+    case OUTBOX_EVENT_TYPES.AI_RESOLUTION_SUGGESTION_GENERATE: {
+  const payload = JSON.parse(event.payloadJson) as { handoffId: string };
+  await handleAiResolutionSuggestionGenerate(payload.handoffId);
+  return;
+}
+
+case OUTBOX_EVENT_TYPES.AI_RESOLUTION_SUGGESTION_GENERATE: {
+  const payload = JSON.parse(event.payloadJson) as { handoffId: string };
+  await handleAiResolutionSuggestionGenerate(payload.handoffId);
+  return;
+}
 
     // -------- Guardrail --------
     default:
@@ -170,3 +184,5 @@ main().catch((e) => {
   console.error("Outbox worker crashed:", e);
   process.exit(1);
 });
+
+
